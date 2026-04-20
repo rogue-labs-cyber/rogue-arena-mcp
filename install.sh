@@ -107,10 +107,18 @@ echo "  git found."
 echo ""
 
 # ── Clone or update the repo ────────────────────────────────────────
+# Self-heals if upstream history was rewritten (force-push): a plain git
+# pull fails with "divergent branches"; fall through to a clean re-clone.
 if [ -d "$INSTALL_DIR" ]; then
   echo "  Updating existing installation..."
   cd "$INSTALL_DIR"
-  git pull --quiet
+  if ! git pull --quiet --ff-only 2>/dev/null; then
+    echo "  Upstream history changed — re-cloning fresh..."
+    cd /
+    rm -rf "$INSTALL_DIR"
+    git clone --quiet "$REPO_URL" "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+  fi
 else
   echo "  Cloning rogue-arena-mcp..."
   git clone --quiet "$REPO_URL" "$INSTALL_DIR"
@@ -160,8 +168,14 @@ PLUGINS="rogue-build-scenario rogue-plugin-dev rogue-curriculum-builder rogue-ac
 PLUGIN_COUNT=4
 
 # Add marketplace (idempotent — ignore error if already registered)
-claude plugin marketplace add "$REPO_URL" >/dev/null 2>&1 || \
-  claude plugin marketplace update rogue-arena >/dev/null 2>&1 || true
+claude plugin marketplace add "$REPO_URL" >/dev/null 2>&1 || true
+
+# Refresh the marketplace's internal clone. Without this, claude plugin install
+# reads stale files after an upstream force-push or normal update.
+claude plugin marketplace update rogue-arena >/dev/null 2>&1 || true
+
+# Clear stale plugin cache so renamed/deleted skills don't linger.
+rm -rf "${HOME}/.claude/plugins/cache/rogue-arena"
 
 # Install each plugin (idempotent — claude plugin install re-installs cleanly)
 for plugin in $PLUGINS; do

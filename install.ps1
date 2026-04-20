@@ -89,10 +89,19 @@ Write-Host "  git found."
 Write-Host ""
 
 # ── Clone or update the repo ────────────────────────────────────────
+# Self-heals if upstream history was rewritten: a fast-forward pull fails,
+# fall through to a clean re-clone.
 if (Test-Path $InstallDir) {
     Write-Host "  Updating existing installation..."
     Push-Location $InstallDir
-    git pull --quiet
+    git pull --quiet --ff-only 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  Upstream history changed — re-cloning fresh..."
+        Pop-Location
+        Remove-Item -Recurse -Force $InstallDir
+        git clone --quiet $RepoUrl $InstallDir
+        Push-Location $InstallDir
+    }
 } else {
     Write-Host "  Cloning rogue-arena-mcp..."
     git clone --quiet $RepoUrl $InstallDir
@@ -143,10 +152,17 @@ Write-Host "  Registering Rogue Arena plugins..."
 $Plugins = @("rogue-build-scenario", "rogue-plugin-dev", "rogue-curriculum-builder", "rogue-active-deployment")
 $pluginCount = $Plugins.Count
 
-# Add marketplace (idempotent — update if already registered)
+# Add marketplace (idempotent — ignore error if already registered)
 & claude plugin marketplace add $RepoUrl 2>$null | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    & claude plugin marketplace update rogue-arena 2>$null | Out-Null
+
+# Refresh marketplace's internal clone. Without this, claude plugin install
+# reads stale files after an upstream force-push or normal update.
+& claude plugin marketplace update rogue-arena 2>$null | Out-Null
+
+# Clear stale plugin cache so renamed/deleted skills don't linger.
+$CacheDir = Join-Path $env:USERPROFILE ".claude\plugins\cache\rogue-arena"
+if (Test-Path $CacheDir) {
+    Remove-Item -Recurse -Force $CacheDir
 }
 
 # Install each plugin

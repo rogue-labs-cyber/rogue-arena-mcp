@@ -1,0 +1,5 @@
+{
+  "name": "rogue-active-deployment",
+  "description": "Operate on a user's running Rogue Arena deployment — list VMs, execute commands, browse filesystems, manage snapshots, transfer files. Triggers: 'run this on the VM', 'list my machines', 'upload this file', 'take a snapshot', 'revert', 'what's on this box', 'test this payload', 'grab that log'.",
+  "version": "2.0.0"
+}

@@ -1,0 +1,32 @@
+{
+  "name": "rogue-arena",
+  "owner": {
+    "name": "Rogue Arena"
+  },
+  "plugins": [
+    {
+      "name": "rogue-build-scenario",
+      "description": "Build and manage Rogue Arena scenarios — brainstorm company context and infrastructure via YML blueprints, implement via MCP tools, freeform canvas editing, and deployment debugging",
+      "version": "2.0.0",
+      "source": "./plugins/rogue-build-scenario"
+    },
+    {
+      "name": "rogue-plugin-dev",
+      "description": "Local-first Ansible plugin development — brainstorm projects, research offline install approaches, and iterate on Ansible YAML with human-driven builds",
+      "version": "1.0.0",
+      "source": "./plugins/rogue-plugin-dev"
+    },
+    {
+      "name": "rogue-curriculum-builder",
+      "description": "Build and edit Rogue Arena curriculum content — chapters, sections, CTF nodes, media, unlock keys, and content blocks",
+      "version": "2.0.0",
+      "source": "./plugins/rogue-curriculum-builder"
+    },
+    {
+      "name": "rogue-active-deployment",
+      "description": "Operate on a user's running Rogue Arena deployment — list VMs, execute commands, browse filesystems, manage snapshots, transfer files",
+      "version": "2.0.0",
+      "source": "./plugins/rogue-active-deployment"
+    }
+  ]
+}

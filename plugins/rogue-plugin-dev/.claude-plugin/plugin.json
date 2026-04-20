@@ -1,0 +1,5 @@
+{
+  "name": "rogue-plugin-dev",
+  "description": "Local-first Ansible plugin development — brainstorm projects, research offline install approaches, and iterate on Ansible YAML with human-driven builds",
+  "version": "1.0.0"
+}

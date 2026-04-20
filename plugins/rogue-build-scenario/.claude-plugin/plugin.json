@@ -1,0 +1,5 @@
+{
+  "name": "rogue-build-scenario",
+  "description": "Build and manage Rogue Arena scenarios — brainstorm company context and infrastructure via YML blueprints, implement via MCP tools, freeform canvas editing, and deployment debugging",
+  "version": "2.0.0"
+}

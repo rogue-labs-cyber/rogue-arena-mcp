@@ -1,7 +1,8 @@
 # Enrichment: Backstory Phase — Reference Doc
 
+> **Staging:** VLAN and machine backstories are staged per `refs/shared-rules.md`. Read the `architect_vlan_manage_backstory` description (path `staging/vlan-{vlanId}/backstory/`, named-section `events.json`) and `architect_machine_manage_backstory` description (path `staging/machine-{machineId}/backstory/`, named sections `workplace-events.json` + `workplace-relationships.json`). Per-user backstories use operation `set_backstory`; incremental operations (`add_event`, `add_relationship`) are NOT staged. The size-guard is 4 KB.
+
 > **For:** architect-implementor Phase B (enrichment step — backstory)
-> **Source:** Migrated from skills/enrichment-backstory/SKILL.md
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 Backstory is the narrative foundation the rest of enrichment builds on. It establishes shared workplace events across VLANs, per-user workplace histories, and machine notes that capture scenario intent. Runs after VLANs, machines, and user assignments exist.
@@ -23,7 +24,7 @@ See [shared-rules.md -- Backstory Event Categories](../shared-rules.md#backstory
 
 ## Machine Notes
 
-`architect_machine_notes_set` captures scenario intent and flow annotations — WHY a machine is configured a certain way. Example: "This DC was the original domain controller before the merger; its GPOs still reflect the pre-acquisition policy set."
+`architect_machine_update` with `aiNotes: "<annotation text>"` captures scenario intent and flow annotations — WHY a machine is configured a certain way. Example: `architect_machine_update({ machineId, aiNotes: "This DC was the original domain controller before the merger; its GPOs still reflect the pre-acquisition policy set." })`
 
 ## Checklist
 
@@ -32,7 +33,7 @@ See [shared-rules.md -- Backstory Event Categories](../shared-rules.md#backstory
 3. Shared VLAN events — `architect_vlan_manage_backstory(operation: "set_events")` per VLAN.
 4. Shared machine events — `architect_machine_manage_backstory(operation: 'generate_shared_events')` per VLAN.
 5. Individual events — `architect_machine_manage_backstory(operation: 'generate')` per assigned user with 100+ character prompts.
-6. Machine notes — `architect_machine_notes_set` for key machines with scenario intent.
+6. Machine notes — `architect_machine_update` with `aiNotes: "<annotation>"` for key machines with scenario intent.
 7. Verify shared events exist for every VLAN before proceeding to other enrichment sections.
 
 ## Constraints

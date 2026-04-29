@@ -10,11 +10,13 @@ The brainstorm produces four files:
 | scenario_part1.yml | "The Shape" | Gate 1 | Company, domains with nested VLANs, machine roles |
 | scenario_part2.yml | "The Cast" | Gate 2 | Characters with backgrounds, hobbies, security habits |
 | scenario_part3.yml | "The Build" | Gate 3 | Plugin mapping, domain relationships, substitutions, defaults |
-| exploit.yml | "The Heist" | Gate 4 | Crown jewels, attack paths, phases |
+| exploit.yml | "The Heist" | Gate 4 | Crown jewel declaration, attack paths, phases |
 
 ---
 
 ## scenario_part1.yml — "The Shape"
+
+> **Phase 4 greenfield entities** — VLANs and machines created by Phase 4's greenfield flow are stamped with `authoredIn: phase_4_greenfield`. See the provenance marker explanation at the end of the `## scenario_part3.yml` section.
 
 Infrastructure skeleton. Company identity, domains with nested VLANs, machine roles. No plugins, no characters, no defaults.
 
@@ -121,6 +123,8 @@ trusts:
 ---
 
 ## scenario_part2.yml — "The Cast"
+
+> **Phase 4 greenfield entities** — Characters created by Phase 4's greenfield flow are stamped with `authoredIn: phase_4_greenfield`. See the provenance marker explanation at the end of the `## scenario_part3.yml` section.
 
 Characters only. One per workstation. Grouped by domain.
 
@@ -306,6 +310,18 @@ defaults:
   shared_events_per_vlan: 4
 ```
 
+### `authoredIn` provenance marker
+
+Entities created by Phase 4's greenfield flow (option D) are stamped with:
+
+```yaml
+authoredIn: phase_4_greenfield
+```
+
+This marker is set on VLANs, machines, characters, and plugin assignments materialized mid-Phase-4. Scenario teardown walks canvas, not YML, so greenfield entities are torn down correctly. The validator also uses this marker to identify Phase-4-authored entities during the canvas↔YML reconciliation pre-check.
+
+Phase 1 / 2 / 3-authored entities do NOT carry this marker (absence implies standard authoring).
+
 ---
 
 ## exploit.yml — "The Heist"
@@ -313,7 +329,7 @@ defaults:
 Fully self-contained exploit plan. The brainstorm declares EVERYTHING the attack chain needs — users, passwords, file locations, technique chain, breadcrumbs. The implementor's job is pure execution: build exactly what this file says.
 
 Key rules:
-- Crown jewels reference VLANs from part1
+- The top-level `crownJewel` block is the only typed crown jewel state — it is YAML-only and is NOT stored in the hub
 - Paths use real technique names from the platform's exploit technique catalog (validated via MCP)
 - Machine flow uses hostnames/labels from part1 and part3
 - Reachability between hop pairs verified via MCP before writing
@@ -330,11 +346,10 @@ meta:
   canvas_id: null
   scenario_ref: "scenario_part1.yml"
 
-crown_jewels:
-  - name: "Project Phantom Schematics"
-    vlan: "Imperial Data Vault"
-    type: data_repository
-    description: "Classified next-gen stealth fighter prototype files on the file server — $200M Imperial contract dependent on IP confidentiality"
+crownJewel:
+  machine: VAULT-FS-01           # must match an existing machine on canvas
+  type: data_repository          # free-text; suggested values: critical_server, application_stack, isolated_vlan, data_repository, control_system
+  description: "Classified next-gen stealth fighter prototype files on the file server — $200M Imperial contract dependent on IP confidentiality"
 
 # All accounts the exploit chain requires. These are created on top of
 # the part2 character cast. Some may overlap with cast members (e.g.,
@@ -387,7 +402,10 @@ paths:
     entry: external
     includes_phishing: true
     phishing_target_vlan: "The Sub-Level"
-    target_crown_jewel: "Project Phantom Schematics"
+    crownJewel:
+      machine: "VAULT-FS-01"
+      type: data_repository
+      description: "Contains R&D project schematics and intellectual property for Phantom division"
     reachability_verified: true
     narrative: |
       Attacker compromises the FTP server in the DMZ, finds Fred's
@@ -468,7 +486,142 @@ breadcrumbs:
     purpose: "Reveals jen's domain creds for cross-VLAN pivot"
 ```
 
-**Mapping note:** The YAML field `narrative_context` on each hop maps to `ExploitPathHop.narrativeContext` at implementor write-time. The `character_sam_account_name` field is a soft reference to a character in `scenario_part2.yml` — resolved by samAccountName match at read time against `architect_machine_get_users` output. There is no FK constraint on this field. `credentialRef` values in the `credentials:` and `credential_discovers` / `credential_uses` fields are server-generated — you declare the account + hop, the server picks the ref.
+**Mapping note:** The YAML field `narrative_context` on each hop maps to `ExploitPathHop.narrativeContext` at implementor write-time. The `character_sam_account_name` field is a soft reference to a character in `scenario_part2.yml` — resolved by samAccountName match at read time against `architect_machine_get` output. There is no FK constraint on this field. `credentialRef` values in the `credentials:` and `credential_discovers` / `credential_uses` fields are server-generated — you declare the account + hop, the server picks the ref.
+
+### `crownJewel` (top-level, required)
+
+Author-only declaration of the scenario's trophy machine. Written by Phase 4 during the Crown Jewel fork. Not stored in the hub — consumed by `architect-validator` and optionally stamped into a machine note by `architect-implementor`.
+
+```yaml
+crownJewel:
+  machine: DM-SQL-01           # must match an existing machine on canvas
+  type: data_repository        # free-text; suggested values: critical_server, application_stack, isolated_vlan, data_repository, control_system
+  description: "Finance quarterly close database — contains M&A projections"
+```
+
+**Validator check (Group B):** `crownJewel.machine` must exist on canvas AND match the final hop's `machineTo`.
+
+---
+
+### New top-level fields (Phase 4 conversational authoring)
+
+```yaml
+# Optional — present only if the user provided learning objectives in Phase 4 preamble.
+learningObjectives:
+  - "Credential harvesting from memory via Mimikatz"
+  - "Pass-the-hash for lateral movement"
+  - "Kerberoasting"
+
+# Optional — list of domain FQDNs declared in Phase 1 that intentionally stay untouched
+# by any hop (red-herring domains, decoys). Validator skips invariant #5 for these.
+intentionallyUntouchedDomains:
+  - "warehouse.dundermifflin.local"
+
+# Path-level privilege arc selection. One of: monotonic, non_monotonic, dip_and_rise
+# (see enum table below for descriptions of each).
+privilegeArcShape: non_monotonic
+
+# Required — bypass decisions surfaced during per-hop audit.
+# Each bypass found during Phase 4 gets one entry with a user-chosen decision.
+# Note: camelCase key names (discoveredAtHop, etc.) are a Phase 4 convention;
+# legacy credentials block uses snake_case (discovered_at_hop). Both are valid
+# in their respective namespaces.
+bypassDecisions:
+  - bypass: "Parent-DA walks straight into child via BUILTIN\\Administrators"
+    discoveredAtHop: 5
+    decision: close        # one of: close, bonus_shortcut, red_herring, ignore
+    rationale: "Compliance memo — segregation of duties audit finding"
+    implementorNotes:      # only populated when decision=close
+      - type: machine_config
+        machine: CHILD-DC-01
+        intent: "Remove Enterprise Admins from BUILTIN\\Administrators"
+        resolvesTo:
+          pluginId: "run_powershell_script"
+        details: "Explicit group membership scrub"
+  # Non-close decisions still carry rationale (captures author intent for future maintainers).
+  - bypass: "Authenticated Users can read \\\\FS-01\\Helpdesk$"
+    discoveredAtHop: 3
+    decision: bonus_shortcut
+    rationale: "Intentional alternate path for thorough students"
+```
+
+### New per-hop fields
+
+> **Naming style note.** New Phase 4 fields use camelCase (`hopNumber`, `machineFrom`, `machineTo`, etc.). Legacy fields on existing hops (`hop`, `source_machine`, `target_machine`, etc.) remain in their snake_case form for backward compatibility — see the baseline hop example earlier in this `exploit.yml` section. When extending an existing `exploit.yml` file, match the existing file's style. New `exploit.yml` files authored via Phase 4 use camelCase throughout.
+
+```yaml
+hops:
+  - hopNumber: 3
+    # ... existing fields ...
+
+    # Optional — only present when learningObjectives are set at the path level.
+    # Ties the hop to one or more preamble learning objectives.
+    teachingObjective: "Kerberoasting — SPN enumeration to TGS-REQ to hashcat"
+
+    # Optional — only present when the user asserted an uncataloged technique
+    # and Claude skipped the 5-source walk.
+    expertDeclaration: "User asserted ESC1 is uncataloged; 5-source walk skipped"
+
+    # Optional — present only when this hop cites Run PowerShell Script or Run Bash Script
+    # AND the path is at/over the escape-hatch cap. Validator enforces: if the hop
+    # exceeds the cap, this field MUST be present with a non-empty reason.
+    escapeHatchOverride: "Novel Linux→Windows bridge via xrdp; no catalog equivalent"
+
+    # Required when the hop needs setup; omit entirely if catalog actions suffice.
+    # Typed implementor notes consumed by architect-implementor.
+    implementorNotes:
+      - type: machine_config           # one of 7 types, see enum below
+        machine: DM-DC-01
+        intent: "Create AD service account svc_sql with kerberoastable SPN"
+        resolvesTo:
+          techniqueId: "attacker_action:kerberoasting"
+        details: "Weak password (e.g. Summer2023!). SPN: MSSQLSvc/db01.corp.local:1433."
+        suggestedPlugin: "Run PowerShell Script"
+      - type: file_seed
+        machine: DM-WKS-01
+        intent: "Plant breadcrumb pointing student at svc_sql as kerberoast target"
+        resolvesTo:
+          fileTypeEnum: "txt"
+        details: "README.txt in Jim's documents mentioning 'backup script runs as svc_sql'"
+        depth: surface                 # one of: surface, middle, deep (file_seed only)
+```
+
+### `implementorNotes` type enum (7 values)
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| `machine_config` | Change machine state (create account, set registry, set SPN, ACL chain) | `"Create svc_sql with SPN MSSQLSvc/db01"` |
+| `plugin_assignment` | Map a plugin to a machine if not already mapped | `"Add Enable RDP plugin to WKST-03"` |
+| `plugin_param` | Set a specific param on an already-mapped plugin | `"Set adcs.template.esc1_enabled=true on RESEARCH-DC"` |
+| `file_seed` | Plant a credential-bearing file. Optionally specify `depth: surface \| middle \| deep` | `"Plant .conf with DB creds in Jim's Documents"` |
+| `credential_setup` | Create or configure a credential | `"Create cached logon session for helpdesk_tech1 on WKST-07"` |
+| `network_config` | Open a port, enable a service, configure firewall | `"Install xrdp + open 3389 on BASTION-01"` |
+| `unresolvable_requires_user_input` | No catalog resolution possible; implementor routes back to user via ask-user signal | `"Need exact SID value for forged golden ticket"` |
+
+### Required fields on every note
+
+- `machine` — target hostname. MUST exist on canvas (validator checks).
+- `intent` — one-line statement of what this accomplishes for the hop.
+- `resolvesTo` — reference to a catalog artifact: one of `pluginId`, `techniqueId`, `fileTypeEnum`. OR use `type: unresolvable_requires_user_input` (then `resolvesTo` is omitted). Free-floating notes without a resolution target are rejected by validator.
+- `details` — free-text sketch. Pseudocode, values, paths. NOT a full script.
+
+### Optional fields
+
+- `suggestedPlugin` — pointer to catalog plugin, typically `"Run PowerShell Script"` or `"Run Bash Script"` for custom setup.
+- `depth` (only on `type: file_seed`) — one of `surface`, `middle`, `deep`. Same credential information layered across tiers; novice students find surface, thorough reach deep.
+
+### `bypassDecisions.decision` enum (4 values)
+
+- `close` — actively remove the bypass; `implementorNotes` populated with the closure steps.
+- `bonus_shortcut` — intentionally leave open as alternate path; validator tags and skips drift checks.
+- `red_herring` — convert to misleading dead end; implementor builds the decoy.
+- `ignore` — author aware but taking no action; logged for posterity.
+
+### `privilegeArcShape` enum (3 values)
+
+- `monotonic` — privilege only rises. Simplest.
+- `non_monotonic` — rises, dips into non-domain zone, rises again. Pedagogically rich on mixed canvases.
+- `dip_and_rise` — high-priv Windows drops to local_user on Linux, re-escalates via sudo/SUID.
 
 ---
 

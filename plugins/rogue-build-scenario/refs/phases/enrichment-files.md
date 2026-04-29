@@ -1,7 +1,8 @@
 # Enrichment: Files Phase — Reference Doc
 
+> **Staging:** File content is staged per `refs/shared-rules.md`. Read the `architect_files_create` description for path templates. Text-based fileTypes (plaintext, script, config, email, log) use the concat pattern (single fragment, typically `01-body.<ext>`); structured fileTypes (docx, xlsx, pptx) use named-sections — one fragment per sheet / section / slide (e.g. `sheet-sales.json`, `section-intro.json`, `slide-01.json`). Content over 16 KB (JSON-stringified) is rejected.
+
 > **For:** architect-implementor Phase B (enrichment step — files)
-> **Source:** Migrated from skills/enrichment-files/SKILL.md
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 File seeding generates realistic workplace file manifests that reflect each user's personality, filing habits, and workplace history. Files are the artifacts a forensic investigator would find on a real machine.

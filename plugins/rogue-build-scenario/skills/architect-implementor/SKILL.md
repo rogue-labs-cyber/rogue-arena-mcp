@@ -1,6 +1,6 @@
 ---
 name: architect-implementor
-description: "Execute a scenario blueprint — expands scenario.yml + exploit.yml into implementation.yml, builds infrastructure via MCP tools. Triggers: 'implement my scenario', 'build from YML'. Dispatched by architect-brainstorm after user approves."
+description: "Execute a scenario blueprint — expands scenario.yml + exploit.yml into implementation.yml, builds infrastructure via MCP tools. Triggers: 'implement my scenario', 'build from YML'. Dispatched by architect-validator after validation passes."
 disable-model-invocation: true
 ---
 
@@ -119,6 +119,8 @@ Load phase ref docs JUST-IN-TIME, not all at once:
 
 ## Phase B: Scenario Build
 
+> **Staging:** `{scenario_dir}/staging/` is the canonical scratch area for deferred large content. Subagents write narrative fragments there; the orchestrator authors identity fields (headers, passwords, samAccountNames, character IDs), verifies fragments from disk, assembles the payload, pushes via MCP, and drops a `.pushed` sentinel. Full protocol in `refs/shared-rules.md` "Staged Dispatch Pattern."
+
 Execute in this order, following the JIT-loaded ref doc for each step:
 
 ### B.1: Set Canvas Context
@@ -147,7 +149,7 @@ Execute in this order, following the JIT-loaded ref doc for each step:
 
 ### B.5: Run Enrichment
 - Only run enabled types (respect scenario.yml `enrichment:` boolean flags)
-- Run in dependency order: backstory → relationships → files → network → crown jewels
+- Run in dependency order: backstory → relationships → files → network
 - Load each enrichment ref doc JIT before running that type
 - Skip disabled types entirely
 
@@ -162,8 +164,8 @@ Execute in this order, following the JIT-loaded ref doc for each step:
 1. Read full canvas state in single pass (`architect_canvas_get_overview` + `architect_machine_list` + `architect_vlan_list`)
 2. Map each narrative phase from exploit.yml to actual machines (match by VLAN name + role keywords; if ambiguous, checkpoint to user)
 3. Resolve techniques against `architect_exploit_technique_list` and `architect_exploit_plugin_find`
-4. Check reachability between each hop pair via `architect_exploit_reachability_check`
-5. Apply self-critique scoring (5 dimensions, >=3 threshold, max 2 revision cycles) per exploits ref doc
+4. Check reachability between each hop pair via `architect_vlan_get` — inspect zone membership and firewall rules for each VLAN involved in the hop to determine whether a path exists between machines
+5. Verify all structural invariants from `refs/exploit-design.md` Section 12 mechanically (same invariants the architect-validator enforces for brainstorm-authored scenarios); block the Write Stage on any failure
 6. Identify prerequisites (SPN accounts for Kerberoasting, firewall rules for cross-VLAN hops)
 7. Expand exploit section of implementation.yml with resolved hops, credentials, breadcrumbs
 8. Surface gaps as expansion flags
@@ -172,14 +174,40 @@ Execute in this order, following the JIT-loaded ref doc for each step:
 ## Phase D: Exploit Build (only if exploit.yml exists)
 
 Following refs/phases/exploits.md Write phase:
-1. Designate crown jewels via `architect_exploit_crown_jewel_set`
-2. Create exploit paths via `architect_exploit_path_add`
-3. Implement hops (8-step per-hop sequence from exploits ref doc)
-4. Create credentials via `architect_exploit_credential_add`
-5. Validate each hop via `architect_exploit_hop_validate`
-6. Run full path audit (8 per-hop checks, 6 dimensions, reconciliation) per ref doc
-7. Checkpoint: "Exploit paths built. X hops, Y credentials. Deviations: [list]"
-8. Write diary entry: EXPLOIT_BUILT
+1. **Crown jewel machine note (optional).** If `exploit.yml` contains a top-level `crownJewel` block with a `description` field, call `architect_machine_update` on the machine named in `crownJewel.machine` with `aiNotes` set to `"Crown jewel: {crownJewel.description}"`. This stamps the endgame intent onto the machine for future sessions. Skip silently if `crownJewel` or `description` is absent.
+2. Implement hops — for each hop in the path:
+
+   #### Step 2a: Process `implementorNotes` for the current hop
+
+   Before building the hop body, iterate the hop's `implementorNotes` array in order. Follow the consumption contract in `refs/phases/exploits.md` (section "Implementor Notes Consumption Contract").
+
+   Key rules:
+   - Dispatch based on note's `type` field (7-value enum).
+   - Use `resolvesTo` to pick the mechanism (plugin ID, technique ID, file type).
+   - For `type: unresolvable_requires_user_input`, route via ask-user signal — NEVER skip silently, NEVER abort the whole scenario.
+   - For `suggestedPlugin: "Run PowerShell Script"` or `"Run Bash Script"`, author the script from `details` and deploy it.
+   - Honor `depth` tier on `file_seed` notes if present.
+
+   #### Step 2b: Build hop body
+
+   Execute the per-hop sequence from exploits ref doc (`fileSpec`, `credentialDiscovers`, etc.).
+
+3. Declare credentials — add all `credentials:` entries to `exploit.yml` with source hop, destination hop, sub-type, and discovery location.
+
+4. Process `bypassDecisions` block
+
+   Iterate the top-level `bypassDecisions` block. For each entry:
+
+   - `decision: close` — execute the entry's `implementorNotes` array using the same contract as per-hop notes (Step 2a above).
+   - `decision: bonus_shortcut` — log rationale; take no action. The bypass remains intentionally open as a parallel path for thorough students.
+   - `decision: red_herring` — build the decoy per the entry's `implementorNotes`, or ask-user if none present.
+   - `decision: ignore` — log rationale; take no action.
+
+   Bypass decisions are author intent — the implementor executes them, does not second-guess them.
+
+5. Run full path audit (8 per-hop checks, 6 dimensions, reconciliation) per ref doc
+6. Checkpoint: "Exploit paths built. X hops, Y credentials. Deviations: [list]"
+7. Write diary entry: EXPLOIT_BUILT
 
 ## Phase E: Validation (optional)
 

@@ -1,7 +1,6 @@
 # Debug Deploy — Reference Doc
 
 > **For:** architect-debug-deploy skill
-> **Source:** Migrated from skills/debug-deploy/SKILL.md
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 ## Purpose
@@ -23,7 +22,7 @@ Complete these steps in order:
 5. **Deep-dive into specific machines** — Call `architect_deploy_get_machine_details` for each machine of interest. Find the errored plugin and its `ymlId`. If specific failed machine IDs were provided, start with those.
 6. **Search logs for errors** — Call `architect_deploy_log_query_raw` with `includeStructure: true`. Start with pattern 1 from the Ansible Error Search Patterns section below; broaden only if pattern 1 returns no matches. If specific error messages were provided, search for those patterns too.
 7. **Understand what the plugin does** — Call `architect_deploy_get_ansible_code` using the `ymlId` from machine details. Also call `architect_plugin_catalog_get_example` to compare against a working configuration.
-8. **Check configured parameters** — Call `architect_assigned_plugin_get` to see the exact params configured on the failing plugin. Call `list_applied_plugins` to check plugin ordering on the machine.
+8. **Check configured parameters** — Call `architect_assigned_plugin_get` to see the exact params configured on the failing plugin. Call `architect_machine_get` to check plugin ordering on the machine.
 9. **Check machine and network context** — Call `architect_machine_get` for IP, template, and gateway config. Call `architect_vlan_get` for DNS forwarding, gateway, and parent domain. Call `discover_tools(search: "machine configs")` to check machine-level configuration if the failure is infrastructure-level. To inspect deployed file artifacts on a failed machine, call `discover_tools(search: "file_operations")` to access `architect_files_get`.
 10. **Check cross-machine dependencies** — If the failure involves domain joins, DNS, or network connectivity, use `architect_machine_list` to find DCs or other machines this one depends on. Check if dependency machines finished building via `architect_deploy_list_status`.
 11. **Live VM debugging** — If logs alone don't explain the failure, call `discover_tools(search: "exec vm command")` to run shell commands directly on the provisioning VM. Check service status, file existence, registry keys, or network connectivity from inside the failing machine.

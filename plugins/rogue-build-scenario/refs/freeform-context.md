@@ -12,11 +12,11 @@ Architect MCP tools are grouped by prefix. Use `discover_tools` to see full desc
 - **Machine tools** (`architect_machine_*`): Create/configure machines, assign users, set notes
 - **Plugin tools** (`architect_plugin_catalog_*` + `architect_assigned_plugin_*`): Search catalog, assign and configure plugins
 - **Forest tools** (`architect_forest_*`): Manage domain topology, events, trusts
-- **Exploit tools** (`architect_exploit_*`): Paths, hops, credentials, crown jewels, reachability
+- **Exploit tools** (`architect_exploit_*`): Paths, hops, credentials, technique catalog, reachability
 - **File tools** (`architect_files_*`): Seed realistic workplace files on machines
 - **Deploy tools** (`architect_deploy_*`): Read-only deployment status and logs
 
-Note: Exploit and deploy tools are lazy-loaded. Call `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "exploit")` before first use.
+Note: Exploit and deploy tools are lazy-loaded. Call `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "exploit")` before first use. The available exploit tools are: `architect_exploit_technique_list`, `architect_exploit_plugin_find`.
 
 ## 2. Platform Hierarchy
 
@@ -70,7 +70,7 @@ Past admin profiles on workstations are allowed for forensic scenarios (stale sc
 
 **Safe update workflow:** (1) Read existing context via `architect_canvas_get_context`, (2) merge your changes into the existing payload, (3) write the merged result in a single `architect_canvas_set_context` call.
 
-The `bpData` payload contains: `companyProfile`, `leadership`, `technicalInfra`, and `fictionalCharacters`. Omitting any section from the call deletes it. Always include all sections, even unchanged ones.
+The `bpData` payload contains: `companyProfile`, `leadership`, and `technicalInfra`. Omitting any section from the call deletes it. Always include all three sections, even unchanged ones.
 
 The `prompt` field is optional metadata for the audit trail. Auto-stored artifacts (`company_context`, `user_profiles`) are derived from bpData — no separate storage calls needed.
 
@@ -130,9 +130,9 @@ Every workstation with a primary user needs an autologon plugin. Without it, the
 
 Backstory enrichment follows a strict sequence: (1) shared VLAN events via `architect_vlan_manage_backstory`, (2) shared machine events via `architect_machine_manage_backstory(operation: 'generate_shared_events')`, (3) per-user events via `architect_machine_manage_backstory(operation: 'generate')` with 100+ character prompts. Later phases (relationships, files) depend on these existing first.
 
-### Crown Jewel Placement Rules
+### Crown Jewel
 
-Crown jewels belong on internal or isolated zone VLANs only — never DMZ or external. One crown jewel type per VLAN maximum. Every crown jewel must include at least one concrete number (dollar amount, record count, fine risk). Use draft nodeIds only. Tag each with target difficulty (`easy`, `medium`, `hard`) — the exploits phase uses this to shape attack path complexity.
+The crown jewel is declared in `exploit.yml`'s top-level `crownJewel` block — YAML-only, not stored in the hub. The `crownJewel.machine` field names the endgame machine; `crownJewel.description` provides business context (dollar amounts, record counts, fine risk). In freeform mode, you can stamp a crown jewel breadcrumb onto a machine by calling `architect_machine_update` with `aiNotes: "Crown jewel: {description}"`. There is no hub API for crown jewel state — the YAML block is the single source of truth.
 
 ### Exploit Path Constraints
 
@@ -141,7 +141,6 @@ Crown jewels belong on internal or isolated zone VLANs only — never DMZ or ext
 - Credential sub-types must match across a chain (4 canonical sub-types: `password`, `hash`, `ticket`, `key` — `password→password`, `hash→hash`, etc.)
 - Use different credential harvesting methods per hop and span all three `implementationType` values (`plugin`, `file_seeding`, `attacker_action`)
 - Paths should touch every domain on the canvas
-- Use `architect_exploit_journal_write` at boundaries (PLANNING_START, PLAN_APPROVED, HOP_IMPLEMENTED, SESSION_SUMMARY) — journal survives context resets
 
 ### File Seeding Targets
 
@@ -160,12 +159,12 @@ Every workstation manifest includes 1-2 email artifacts (OST, PST, or saved .eml
 - **Wire two VLANs:** `architect_vlan_manage_connection` with trust level, firewall rules, and default policy. AD-trusting pairs need rules for ports 88, 389, 636, 445, 53, 3268, 3269.
 - **Check what's missing:** `architect_canvas_get_completeness` returns per-machine percentages and specific gaps. Below 100% means something is missing.
 - **Swap a plugin:** `architect_assigned_plugin_delete` the old one, then `architect_assigned_plugin_add` the new one. Re-discover params via catalog before configuring.
-- **Add machine notes:** `architect_machine_notes_set` with freeform text describing the machine's role in the learning flow or notable configuration details.
+- **Add machine notes:** `architect_machine_update` with `aiNotes` field containing freeform text describing the machine's role in the learning flow or notable configuration details.
 - **Search for anything:** `architect_canvas_global_search` searches across all entity types — users, machines, plugins, params. Use field hints like `["username", "displayname"]` to narrow results.
 - **Modify company context:** Read via `architect_canvas_get_context`, merge changes, write back via `architect_canvas_set_context` (single call, all sections included).
 - **Add a user to a workstation:** `architect_machine_manage_user` with full bpData (every field filled). Then install autologon plugin with the user's credentials.
 - **Seed files on a machine:** `architect_files_get_seeding_context` first to get user/machine context -> `architect_files_create` per file entry (batch up to 20 per call).
-- **Start an exploit path:** `architect_exploit_path_add` creates the container -> inventory techniques -> check reachability -> design hops -> `architect_exploit_hop_add` per hop after user confirms plan.
-- **Resume an exploit path:** `architect_exploit_path_get` to see status -> `architect_exploit_journal_read` for planning context -> resume based on status (Planning with 0 hops = spitball; Planning with hops = mid-write; Validated = complete).
+- **Design an exploit path:** inventory techniques via `architect_exploit_technique_list` -> check VLAN connection rules via `architect_vlan_get` (zone + firewall rules show whether a path exists) -> commit hops to `exploit.yml` after user confirms plan. Canvas materializes from the YAML at apply time.
+- **Resume an exploit path:** read `exploit.yml` from the scenario directory for planning context -> read canvas state via `architect_canvas_get_overview` to see what has been materialized -> resume based on state.
 - **Check AD data:** DC plugin params hold the source of truth — use `architect_assigned_plugin_get_param` for CreateUsers/CreateOUs/CreateGroups, or `architect_canvas_global_search` with field hints.
 - **Validate infrastructure:** Read-only audit via `architect_canvas_get_overview`, `architect_canvas_get_completeness`, and per-machine `architect_machine_get`. Never mutates canvas state.

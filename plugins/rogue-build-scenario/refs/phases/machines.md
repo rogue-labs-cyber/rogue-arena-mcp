@@ -1,7 +1,6 @@
 # Machines Phase — Reference Doc
 
 > **For:** architect-implementor Phase B (machines step)
-> **Source:** Migrated from skills/machines/SKILL.md
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 Machines are the physical backbone of every scenario. Skipped fields, deferred catalog lookups, and thin user profiles produce silent failures that only surface at deployment. This phase doc covers reading the machine manifest produced by the domains phase and turning it into fully configured machines on the canvas — each with a role (DC, server, workstation, local), purpose narrative, plugins, parameter configuration, and user assignments.
@@ -28,7 +27,7 @@ Complete these steps in order.
 4. **Create machine** — Spawn a haiku subagent to call `architect_machine_add` with bpData containing the machine's role narrative, purpose, and AD placement. Call `discover_tools(search: "templates")` to list available OS templates. Match template to machine role: Windows Server for DCs/servers, Windows 10/11 for workstations, Linux for specific services.
 5. **Install base and role plugins** — Call `architect_assigned_plugin_add` for each plugin. Install `required: true` plugins first, then optional ones. Order: base plugins (discover via `architect_plugin_catalog_search` when the manifest is missing them) then role-specific plugins from the manifest. User-specific plugins (e.g., development tools for a developer workstation) install in step 9 after user assignment completes, since they depend on knowing who the user is.
 6. **Discover parameter field names** — Call `architect_plugin_catalog_list_full` with all `pluginVersionId`s from the machine's plugin list to get exact parameter names, types, descriptions, and CSV headers. Always precedes step 7.
-7. **Configure parameters** — Call `architect_assigned_plugin_set_params` using the exact field names from step 6 and the parameter descriptions to choose values. On failure, check the error for correct field names and retry. For DC CSV params (CreateUsers, CreateOUs, CreateGroups), dispatch a haiku subagent per "DC User CSV Generation" below and pass its returned CSV string as the `value` — the orchestrator never writes CSV rows inline.
+7. **Configure parameters** — Call `architect_assigned_plugin_set_params` using the exact field names from step 6 and the parameter descriptions to choose values. On failure, check the error for correct field names and retry. For DC CSV params (CreateUsers, CreateOUs, CreateGroups), follow the Staged Dispatch Pattern per "DC User CSV Generation" below — the orchestrator authors identity fields, subagents author narrative fields, the orchestrator assembles and pushes via staging.
 8. **Assign users** — Spawn a haiku subagent to call `architect_machine_manage_user` with rich bpData (see User Assignment below). Match workstation purpose to the right user by searching via `architect_canvas_global_search` or the DC's CreateUsers CSV param.
 9. **Install user-specific plugins** — Now that the user is assigned:
     a. **Autologon plugin (required for every workstation with a primary user)** — Search for the autologon plugin via `architect_plugin_catalog_search` (search: "autologon" or "auto log"). Install it via `architect_assigned_plugin_add`. Discover its params via `architect_plugin_catalog_list_full`, then configure them with the assigned user's `samAccountName` and `password` from the bpData used in step 8. Without this plugin, the user assignment only exists in the canvas — Ansible won't actually log the user in on boot.
@@ -64,7 +63,7 @@ DCs are the most involved machines to configure:
 
 - Install DC plugins from the manifest (AD DS, DNS, DHCP, CreateUsers)
 - Configure domain name, admin credentials, OU structure
-- For CreateUsers, CreateOUs, and CreateGroups CSV params: dispatch a haiku subagent to produce the CSV (see "DC User CSV Generation" below), then call `architect_assigned_plugin_set_params` with the CSV param's `parameterFieldName` and the returned CSV string as `value`. This applies to every row count — there is no "small enough to do inline" threshold.
+- For CreateUsers, CreateOUs, and CreateGroups CSV params: follow the Staged Dispatch Pattern (see "DC User CSV Generation" below). The orchestrator authors identity fields, subagents author narrative fields, the orchestrator assembles and pushes. This applies to every row count — there is no "small enough to do inline" threshold.
 - When `workplaceEvents` are available from VLAN context, reflect incidents in OU naming and security group structure (e.g., a post-breach `Security-Audit-Team` OU)
 
 ### Servers (medium)
@@ -132,7 +131,7 @@ Use this context to make decisions. When adding a web server, the VLAN context t
 | What OU structure exists? | CreateOUs CSV on DC plugin | `architect_assigned_plugin_get_param` or `architect_canvas_global_search` |
 | What groups exist? | CreateGroups CSV on DC plugin | `architect_assigned_plugin_get_param` or `architect_canvas_global_search` |
 | User personality/backstory? | Machine assignment bpData | `architect_machine_get` or `architect_canvas_global_search` |
-| Why is user on this machine? | Machine notes | `architect_machine_notes_search` or `architect_canvas_global_search` |
+| Why is user on this machine? | Machine aiNotes field | `architect_machine_get` or `architect_canvas_global_search` (searches aiNotes content) |
 | Find everything about user X | All sources | `architect_canvas_global_search` with ["username", "displayname"] |
 
 ## Plugin Resolution Fallback
@@ -146,26 +145,19 @@ If the manifest plugins are missing or incomplete:
 
 ## DC User CSV Generation
 
-DC `CreateUsers`, `CreateOUs`, and `CreateGroups` CSV params are bulk, pattern-following content. The orchestrator dispatches a haiku subagent to generate the CSV string and then passes it through to `architect_assigned_plugin_set_params`. The orchestrator does not write CSV rows itself — not for any row count.
+DC `CreateUsers`, `CreateOUs`, and `CreateGroups` CSV params are staged per the Staged Dispatch Pattern in `refs/shared-rules.md`. Read the `architect_assigned_plugin_set_params` tool description for the path template and the concat assembly rule.
 
-**Haiku CSV dispatch** — see [shared-rules.md - Haiku Subagent Dispatch Pattern](../shared-rules.md#haiku-subagent-dispatch-pattern) for the canonical template shape.
+Identity-bearing fields are authored by the orchestrator — never by subagents:
 
-**Per-phase context block:** companyName, industry, departments, characters (leadership + staff), workplaceEvents, CSV schema (from `architect_plugin_catalog_list_full`: parameterFieldName, headers, row count target).
+- `01-header.csv` is always written by the orchestrator from the plugin catalog's `ifCSVListOfHeaderStringValues` schema.
+- samAccountNames are allocated per-fragment by the orchestrator (e.g. fragment A gets positions 1–50, fragment B gets 51–100); subagents receive their slice as an allocation list.
+- Passwords are sourced from `implementation.yml` or generated by the orchestrator; subagents reference them verbatim, never invent.
 
-**Step 3 instruction:** "Return ONLY the raw CSV string (headers + rows, no prose, no code fences). Pack every row with: real-sounding samAccountName, character name, specific title, department, and a description that references the company, industry, or a workplace event."
+Subagents author only narrative fields: character title, department, description text, forensic details. Subagents never write header rows, never generate samAccountNames, never invent passwords.
 
-**Example CSV value returned by the subagent:**
+After assembly, the orchestrator cross-checks every samAccountName and password against the allocation plan before pushing; any drift triggers a re-dispatch of the offending fragment.
 
-```
-samAccountName,displayName,title,department,description
-schen,Sarah Chen,Clinical Director,Clinical,HIPAA compliance lead
-mwebb,Marcus Webb,IT Security Lead,IT,Incident response coordinator
-...
-```
-
-**Orchestrator duty before dispatch:** Call `architect_plugin_catalog_list_full` first to get the exact `parameterFieldName` and CSV header schema, then pass that schema into the subagent prompt so headers come from the catalog, not subagent guesses.
-
-**Orchestrator duty after dispatch:** Before calling `architect_assigned_plugin_set_params`, verify the returned CSV — row count matches target, headers match schema, no content policy violations, descriptions are substantive (not placeholders). Re-dispatch with corrections if checks fail.
+Inline values over 8 KB are rejected by the hub with a 400 and the exact staging path.
 
 ## Subagent Dispatch Points
 

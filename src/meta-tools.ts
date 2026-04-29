@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { Session } from "./session.js";
 import type { HubClient, ToolSchema } from "./hub-client.js";
 
@@ -21,6 +22,10 @@ export function setAlwaysTools(tools: ToolSchema[]): void {
   alwaysToolsCache = tools;
 }
 
+export function clearPromotedTools(): void {
+  promotedToolNames.clear();
+}
+
 export function setToolPromotion(
   listedTools: Array<Record<string, unknown>>,
   toMcpTool: (tool: ToolSchema) => Record<string, unknown>
@@ -39,19 +44,22 @@ export const META_TOOLS = [
       properties: {
         canvasVersionId: {
           type: "string",
+          format: "uuid",
           description: "The UUID of the canvas version to work on",
         },
       },
       required: ["canvasVersionId"],
+      additionalProperties: false,
     },
   },
   {
     name: "rogue_whoami",
     description:
-      "Show the current authenticated user context (user ID, username, permissions). Useful for debugging auth issues.",
+      "Show the current authenticated user context (user ID, username, session canvas). Useful for debugging auth issues.",
     inputSchema: {
       type: "object" as const,
       properties: {},
+      additionalProperties: false,
     },
   },
   {
@@ -77,6 +85,7 @@ export const META_TOOLS = [
             "Keyword search across tool names and descriptions (e.g., 'forest', 'file seeding', 'deploy')",
         },
       },
+      additionalProperties: false,
     },
   },
 ];
@@ -87,7 +96,37 @@ export interface MetaToolResult {
   isError?: boolean;
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// ── Zod schemas ──────────────────────────────────────────────────────
+
+const SetCanvasSchema = z
+  .object({
+    canvasVersionId: z.string().uuid(),
+  })
+  .strict();
+
+const WhoAmISchema = z.object({}).strict();
+
+const DiscoverToolsSchema = z
+  .object({
+    category: z.string().optional(),
+    subcategory: z.string().optional(),
+    search: z.string().optional(),
+  })
+  .strict();
+
+function parseInput<T>(
+  schema: z.ZodType<T>,
+  args: Record<string, unknown>
+): { success: true; data: T } | { success: false; error: string } {
+  const result = schema.safeParse(args);
+  if (result.success) return { success: true, data: result.data };
+  return {
+    success: false,
+    error: result.error.issues
+      .map((i) => `${i.path.length ? i.path.join(".") + ": " : ""}${i.message}`)
+      .join("; "),
+  };
+}
 
 export async function handleMetaTool(
   toolName: string,
@@ -97,21 +136,11 @@ export async function handleMetaTool(
 ): Promise<MetaToolResult> {
   switch (toolName) {
     case "rogue_set_canvas": {
-      const canvasVersionId = args.canvasVersionId as string | undefined;
-
-      if (!canvasVersionId?.trim()) {
-        return {
-          content: [{ type: "text", text: "Canvas version ID is required." }],
-          isError: true,
-        };
+      const parsed = parseInput(SetCanvasSchema, args);
+      if (!parsed.success) {
+        return { content: [{ type: "text", text: parsed.error }], isError: true };
       }
-
-      if (!UUID_RE.test(canvasVersionId)) {
-        return {
-          content: [{ type: "text", text: "Invalid canvas version ID format. Must be a valid UUID." }],
-          isError: true,
-        };
-      }
+      const { canvasVersionId } = parsed.data;
 
       try {
         await hub.validateCanvas(canvasVersionId);
@@ -134,6 +163,11 @@ export async function handleMetaTool(
     }
 
     case "rogue_whoami": {
+      const parsed = parseInput(WhoAmISchema, args);
+      if (!parsed.success) {
+        return { content: [{ type: "text", text: parsed.error }], isError: true };
+      }
+
       // Live auth check — try hitting the hub to verify the token still works
       let authStatus: "ok" | "expired" | "error" = "ok";
       let authDetail = "";
@@ -173,9 +207,11 @@ export async function handleMetaTool(
     }
 
     case "discover_tools": {
-      const category = args.category as string | undefined;
-      const subcategory = args.subcategory as string | undefined;
-      const search = args.search as string | undefined;
+      const parsed = parseInput(DiscoverToolsSchema, args);
+      if (!parsed.success) {
+        return { content: [{ type: "text", text: parsed.error }], isError: true };
+      }
+      const { category, subcategory, search } = parsed.data;
 
       if (!category && !subcategory && !search) {
         return {
@@ -185,6 +221,7 @@ export async function handleMetaTool(
               text: "Provide at least one of 'category', 'subcategory', or 'search' to discover tools.",
             },
           ],
+          isError: true,
         };
       }
 
@@ -197,8 +234,12 @@ export async function handleMetaTool(
       }
 
       if (subcategory) {
-        const lower = subcategory.toLowerCase();
-        results = results.filter((t) => t.subcategory?.toLowerCase() === lower);
+        const appliedCategory = category?.toUpperCase();
+        const rabOnly = !appliedCategory || appliedCategory === "ROGUE_ARCHITECT_BUILDER";
+        if (rabOnly) {
+          const lower = subcategory.toLowerCase();
+          results = results.filter((t) => t.subcategory?.toLowerCase() === lower);
+        }
       }
 
       if (search) {

@@ -109,7 +109,6 @@ Freeform is for single-entity or few-entity changes:
 - Swap a plugin or reconfigure params
 - Add a VLAN and wire it
 - Modify firewall rules
-- Designate a crown jewel
 - Add/modify an exploit hop
 - Seed files on a machine
 - Add machine notes

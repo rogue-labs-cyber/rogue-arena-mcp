@@ -126,7 +126,7 @@ When `pluginVersionId` is present, MCP tools extend the local work loop:
 | Write/edit YAML | Save to `ansible_run.yml` | Also push via `plugin_dev_update_yaml` |
 | Add/change params | Update `project.json` params | Also call `plugin_dev_add_param` / `plugin_dev_update_param` / `plugin_dev_delete_param` |
 | Update name/desc/type | Update `project.json` | Also call `plugin_dev_update_metadata` |
-| Upload resources | Save to `for_plugin_vault/` | Vault file upload is done via the Rogue Arena UI — no MCP tool exists for upload. Save files locally and tell the user to upload via the plugin editor. |
+| Upload resources | Save to `for_plugin_vault/` | Also call `plugin_dev_upload_to_vault` to upload the file directly to the platform vault. |
 | Check vault contents | `ls for_plugin_vault/` | Also call `plugin_dev_list_vault_files` |
 | Delete vault files | `rm` locally | Also call `plugin_dev_delete_vault_file` |
 

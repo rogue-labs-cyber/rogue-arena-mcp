@@ -1,7 +1,6 @@
 # Domains Phase — Reference Doc
 
 > **For:** architect-implementor Phase B (domains step)
-> **Source:** Migrated from skills/domains/SKILL.md
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 ## Overview
@@ -23,6 +22,8 @@ Do not use TodoWrite during build execution. The gate sequence is the progress t
 Event descriptions name 1-3 leadership team members, quantify impact (dollar amounts, record counts, headcounts), and trace consequences -- "A data breach occurred" does not meet this bar.
 
 ## Phase 1: Forest Topology
+
+> **Staging:** Forest events for the `set` operation are staged per `refs/shared-rules.md`. Read the `architect_forest_manage` description for path (`staging/forest/`) and sections (`events.json`, `backstories.json`, `relationships.json`). `add_events` and `update_events` are NOT staged — call directly with small payloads.
 
 ### Decision Heuristics
 
@@ -136,6 +137,8 @@ Every VLAN receives at least 1 relevant plugin.
 For each VLAN, generate bpData with purpose and zone, then call `architect_vlan_add`.
 
 The `purpose` field (min 30 chars) includes: machine types, domain join status, communication patterns, business function with industry-specific apps, and security posture reality. Great purposes read like a sysadmin's honest assessment of a real network segment.
+
+`architect_vlan_add` also accepts an `aiNotes` string — a free-text field for AI-generated notes and context about this VLAN (e.g. design rationale, domain-specific quirks, backstory highlights) that persists alongside the blueprint data. Populate it when there is meaningful context beyond what fits in `purpose`.
 
 For 3+ VLANs, spawn haiku subagents in parallel -- one per VLAN. Their outputs are independent. See [shared-rules.md SS Subagent Dispatch Pattern](../../refs/shared-rules.md#haiku-subagent-dispatch-pattern) for the canonical template shape.
 

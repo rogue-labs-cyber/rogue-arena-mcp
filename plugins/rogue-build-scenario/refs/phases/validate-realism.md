@@ -1,7 +1,6 @@
 # Validation: Realism — Reference Doc
 
 > **For:** architect-implementor Phase E; architect-freeform on-demand validation
-> **Source:** Migrated from skills/validate-realism/SKILL.md
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 ## Purpose

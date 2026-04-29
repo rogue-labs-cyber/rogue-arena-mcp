@@ -1,7 +1,6 @@
 # Enrichment: Relationships Phase — Reference Doc
 
 > **For:** architect-implementor Phase B (enrichment step — relationships)
-> **Source:** Migrated from skills/enrichment-relationships/SKILL.md
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 Relationships drive the social fabric that exploit paths exploit — mentorship trust, information asymmetry, cross-department access patterns, and shared file collaboration.
@@ -57,9 +56,8 @@ Every `operation: 'generate'` call includes a prompt of 100+ characters covering
 
 1. Read profiles — `architect_canvas_get_context` for company, departments, characters.
 2. Read existing shared events — `architect_machine_manage_backstory` (read operation) per VLAN. If events are missing, halt and direct to backstory first.
-3. Read crown jewels (if designated) — understand guardian context for trust chains.
-4. Per-user relationships — `architect_machine_manage_backstory(operation: 'generate')` per assigned user with 100+ character prompts referencing shared events from step 2.
-5. Verify — count relationships per user against workStyle caps. Confirm at least one cross-VLAN relationship exists when multiple VLANs have users. Confirm cross-trust pairings when AD trusts exist.
+3. Per-user relationships — `architect_machine_manage_backstory(operation: 'generate')` per assigned user with 100+ character prompts referencing shared events from step 2.
+4. Verify — count relationships per user against workStyle caps. Confirm at least one cross-VLAN relationship exists when multiple VLANs have users. Confirm cross-trust pairings when AD trusts exist.
 
 ## Constraints
 

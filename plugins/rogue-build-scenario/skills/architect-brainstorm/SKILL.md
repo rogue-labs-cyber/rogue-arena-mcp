@@ -1,6 +1,6 @@
 ---
 name: architect-brainstorm
-description: "Interactive scenario design — brainstorm company context, infrastructure, characters, and optional exploit paths. Produces scenario_part1.yml + scenario_part2.yml + scenario_part3.yml + exploit.yml. Triggers: 'build a lab', 'new scenario', 'update my scenario', 'design a network', 'add exploit path'."
+description: "Interactive scenario design — brainstorm company context, infrastructure, characters, and optional exploit paths. Produces scenario_part1.yml + scenario_part2.yml + scenario_part3.yml + exploit.yml. On Phase 4 completion, hands off to architect-validator. Triggers: 'build a lab', 'new scenario', 'update my scenario', 'design a network', 'add exploit path'."
 disable-model-invocation: true
 ---
 
@@ -32,12 +32,13 @@ Phase 3 — THE BUILD
 
 Phase 4 — THE HEIST (optional)
   Ask: "Want to make it hackable too?"
-  If yes: propose 2-3 attack paths → user picks →
-  show exploit path visual → "Any tweaks?" → write exploit.yml
+  If yes: conversational fork-by-fork walk (crown jewel → arc → hops →
+  per-hop bypass audit → setup notes) → write exploit.yml with
+  implementorNotes, bypassDecisions, privilegeArcShape → invoke validator
 
 HANDOFF
   "All phases done. Stamping canvas ID into YML files."
-  Stamp canvas_id → invoke architect-implementor.
+  Stamp canvas_id → invoke architect-validator (which gates the implementor handoff).
 ```
 
 Each phase ends with a visual + confirmation. That IS the gate.
@@ -65,14 +66,14 @@ do the work yourself, then present for review. Phase 4 is optional.
 
 **IMPORTANT: Use TodoWrite to create todos for EACH step below.** Checklists without TodoWrite tracking = steps get skipped. Every time.
 
-In your first message, after the roadmap, call TodoWrite to create these 5 items:
+In your first message, after the roadmap, call TodoWrite to create these 6 items:
 
 1. **Scenario Dev (Light)** — Company identity, domains, VLANs, machine roles → topology visual → user confirms → write scenario_part1.yml
 2. **Characters** — Generate cast (one per workstation), hobbies, security habits → character roster visual → user confirms → write scenario_part2.yml
 3. **Connect Canvas** — Collect canvas ID from user so we can search the plugin catalog
 4. **Scenario Dev (Heavy)** — Search plugin catalog, map roles → plugins, fill defaults → plugin mapping visual → user confirms → write scenario_part3.yml
-5. **Exploit Paths** — Crown jewels, attack paths, phases → exploit path visual → user confirms → write exploit.yml (optional — user may skip)
-6. **Implement in Rogue Architect** — Stamp canvas ID into YML files, invoke architect-implementor
+5. **Exploit Paths** — Conversational fork-by-fork walk (crown jewel YAML block → arc → hops with per-hop bypass audit + setup notes) → write exploit.yml (optional — user may skip)
+6. **Validate and hand off** — Stamp canvas ID into YML files, invoke architect-validator (which gates the implementor handoff)
 
 Mark each item `in_progress` when starting and `completed` when done. Follow top to bottom. Never skip items.
 
@@ -171,30 +172,141 @@ Transition naturally: "Now that infrastructure, characters, and plugins are lock
 
 If no: skip to finalization.
 
-If yes: **load `refs/exploit-design.md` before anything else.** It teaches the credential location menu, trust boundary catalog, privilege arc patterns, narrative depth bar, and the rubric you'll grade against. Use Glob with pattern `**/rogue-build-scenario/refs/exploit-design.md` to locate it.
+If yes: **load reference docs before anything else.** Use Glob with patterns:
+- `**/rogue-build-scenario/refs/exploit-design.md`
+- `**/rogue-build-scenario/refs/escape-hatch-plugins.md`
 
-**Step 1 — Survey the canvas.** Call `architect_canvas_get_overview`, `architect_forest_get_events`, `architect_exploit_crown_jewels_get`. Count machines, domains, trust relationships, non-domain segments, co-located admin sessions, seedable file systems.
+### Pre-opening: Learning-objectives preamble (optional)
 
-**Step 2 — Propose hop-count target.** Per Section 9 of exploit-design.md, survey canvas shape and propose a target range with one-line rationale. Ask the user to confirm or override. Commit to their number; do not re-propose during rubric scoring.
+Ask once:
 
-**Step 3 — Catalog inventory (blocking).** Call `architect_exploit_technique_list` and `architect_exploit_plugin_find` for every abstract technique you intend to use. No technique goes into the plan without a catalog match this session.
+> "Any learning objectives driving this scenario? (e.g., 'teach NTLM relay + PtH + kerberoasting'). Skip if you're going by feel."
 
-**Step 4 — User intent.** Ask about crown jewels, entry point, difficulty, phishing-or-not. Apply the user's constraints to the path shape.
+If user provides objectives, stamp them into scenario metadata (will appear as `learningObjectives: [...]` at top of `exploit.yml`) and echo them back during hop proposals ("this hop teaches objective #3 — kerberoasting"). If user skips, proceed with pure attack-path framing.
 
-**Step 5 — Design the path.** Use only real technique names from catalog results. For each hop declare: machine flow, technique, implementation type, privilege transitions, trust boundary (if any), network zone, narrative context (citing a specific forest event or machine backstory — Section 8 of exploit-design.md), breadcrumbs with owning characters.
+When objectives exist, each committed hop gets an optional `teachingObjective` field tying it back to one or more preamble items.
 
-**Step 6 — Run structural invariants (hard gate).** Before writing exploit.yml, check all 7 invariants from Section 10 of exploit-design.md. Any failure blocks the write. The invariants are:
-  1. Catalog membership (every abstractTechnique queried this session)
-  2. Credential sub-type chain (sub-types match across discovery → usage)
-  3. Diversity floor (≥ min(ceil(uniqueMachinesTouched / 2), 5) distinct location patterns)
-  4. Legal privilege transitions
-  5. Every declared domain touched
-  6. Narrative citation (every hop cites forest event or backstory field)
-  7. Breadcrumb quality (owning character in scenario_part2, contentHint ≥ 50 chars)
+### Step 1 — Survey the canvas
 
-**Step 7 — Run design rubric.** Score the 3 dimensions from Section 10 (technique diversity, domain coverage, privilege arc richness). Max 2 auto-revision cycles; on third fail, escalate to the user with specific failing dimensions.
+Call `architect_canvas_get_overview` and `architect_forest_get_events`. Count machines, domains, trust relationships, non-domain segments, co-located admin sessions, seedable file systems. For each machine candidate, call `architect_machine_get` to read its `backstory` field — character traits and security habits inform crown jewel narrative rationale.
 
-**Step 8 — Present and write.** Show the path as a bulleted machine flow with hop-by-hop technique, privilege transitions, credential chain, character bad-habit source per hop. Ask for tweaks. On confirm, write exploit.yml.
+Do not propose a hop count yet — the conversational flow surfaces arc and scale in later forks.
+
+### Step 2 — Crown Jewel fork
+
+Using the canvas survey and backstory reads from Step 1, propose one recommendation plus alternatives with explicit narrative rationale for each. Invite the user to redirect:
+
+- **A)** Existing high-value machine (e.g., DBA's SQL server, CFO's workstation) — name the character whose habits make it reachable.
+- **B)** Existing sensitive zone (e.g., air-gapped Linux box) — describe the data and why it is the compelling endgame.
+- **C)** Enterprise Admin account (classic full-forest compromise) — name the admin whose credential habits make this the narrative endpoint.
+- **D)** **Greenfield** — materialize a brand-new VLAN as the crown jewel zone.
+
+If user picks D, execute the Greenfield Flow (Step 2a). Otherwise, once the user picks an option, write the choice into the top-level `crownJewel` block of `exploit.yml` (see `refs/scenario-schema.md` for field definitions). Proceed to Step 3.
+
+### Step 2a — Greenfield Flow (option D only)
+
+1. **Pre-flight collision check.** Before any MCP write:
+   - SAM name collisions against existing Phase 2 characters (cross-domain).
+   - Subnet overlap against existing VLANs.
+   - Fail-fast if either collides; propose alternatives.
+
+2. **Textual sketch (no writes yet).** Present:
+   - VLAN name, FQDN, graft point (existing domain or standalone).
+   - Machine list with hostnames and roles.
+   - Generated characters (name, role, security habits) for each workstation.
+   - Plugin sketch for each machine.
+
+3. **User confirms.** Only after confirmation do MCP writes fire. Pre-confirm backtrack = nothing written.
+
+4. **Commit.** Fire in order:
+   - `architect_vlan_add` for the new VLAN.
+   - `architect_machine_add` per machine.
+   - Character + plugin data materialized via the appropriate MCP tools.
+   - Stamp each created entity with `authoredIn: phase_4_greenfield` provenance marker.
+   - Rewrite `scenario_part1.yml`, `_part2.yml`, `_part3.yml` atomically from canvas state (full rewrite, not append).
+
+5. **Post-confirm backtrack protocol.** If user later changes mind:
+   > "Drop the 3 machines / 2 chars / 4 plugin assignments added for VAULT VLAN? [confirm/keep]"
+   On confirm, fire `architect_vlan_delete` + revert YML deltas.
+
+### Step 3 — Privilege arc fork
+
+Before entry zone, propose arc shape with rationale:
+
+- **Monotonic** — privilege only rises. Simple, small single-domain canvases.
+- **Non-monotonic** — rises, dips into non-domain zone, rises again. Pedagogically rich on mixed canvases.
+- **Dip-and-rise** — high-priv Windows drops to local_user on Linux, re-escalates via sudo/SUID.
+
+YAML values are snake_case: `monotonic`, `non_monotonic`, `dip_and_rise`. Display labels above are for conversation only.
+
+Pick one based on canvas shape and state why. User redirects if desired. This surfaces the choice explicitly instead of burying it — passive users now see the fork. Value lands in `privilegeArcShape` path-level field (e.g., `non_monotonic`).
+
+### Step 4 — Subsequent forks (walk the heist)
+
+Then, one fork at a time, with silent catalog queries between user turns (see Step 6 for the full 5-source query discipline referenced in the "silent work" column):
+
+| Fork | Claude's work (silent) | User input |
+|------|------------------------|------------|
+| Entry zone | 5-source catalog queries; propose one zone w/ rationale | Confirms or redirects |
+| Entry technique | `architect_exploit_plugin_find` + `architect_exploit_technique_list` filtered by zone context | Picks one, or drops hop |
+| Next hop (repeat) | Given current privilege + location, propose next move with 5-source discipline | Confirms or redirects |
+| Setup notes | Per committed hop, sketch `implementorNotes` (typed enum) | Confirms or edits |
+
+Silent between-turn work:
+- `architect_exploit_technique_list` (filtered to current context).
+- `architect_vlan_get` for proposed machine pairs (zone membership + firewall rules determine whether a path exists).
+- `architect_forest_get_domain_trusts` when a trust crossing is on the table.
+- `architect_plugin_catalog_list_full` when a non-default service is needed.
+
+**Hop-count estimate.** After the privilege arc fork (Step 3) and before committing hops, surface a hop-count estimate to the user using the survey-and-propose pattern from `exploit-design.md` Section 11. Framing: "Based on canvas shape (N domains, M machines, K trust relationships), I'd target a path of X-Y hops — does that sound right?" Not a hard gate; user can override by asking for denser or tighter paths. Once user confirms a target, commit and don't re-propose.
+
+### Interaction pattern (every fork)
+
+Lead with a concrete recommendation + one-line reasoning, then invite redirect:
+
+> "I'd go with X because Y. That said, if you'd rather Z or something weirder, say the word."
+
+Not "here are 3 options, pick one." Strong recommendation, open door for redirect.
+
+### Step 5 — Per-hop discipline
+
+Three micro-steps for every hop commitment:
+
+1. **Reality-check before commit.** Ask: *"Why would this artifact be at this place in-universe?"* If the narrative answer is weak (no character shortcut, pressure, or obsession motivating it), offer both options explicitly: **"patch in place"** (tweak the artifact's story) or **"back up to the prior hop and redesign"** (rethink the approach). Default-to-patch is a trap.
+
+2. **Bypass audit after commit.** Survey canvas state: *"What else now shortcuts this hop?"* For each bypass found, surface to user with per-bypass options: **close it** (with narrative rationale captured in the `close` entry's `implementorNotes`), **leave as bonus_shortcut** (tagged so validator ignores), **flip to red_herring** (convert to distracting dead end), or **ignore** (logged for posterity). Record the decision in `bypassDecisions` block of `exploit.yml`.
+
+3. **Live machine notes.** Call `architect_machine_update` on touched machines, passing an `aiNotes` string that captures: role in chain, primary user, seeded artifacts, credential flow, flag criteria. Future sessions (debug, update, revert) read these directly, independent of exploit.yml.
+
+### Step 6 — Query-First Discipline
+
+Before reaching for the escape hatch, query the catalog in strict 5-step order:
+
+1. **Vuln plugins** — `architect_exploit_plugin_find`.
+2. **Exploit enum / attacker actions** — `architect_exploit_technique_list` filtered `implementationTypes: ['attacker_action']`.
+3. **Pathway plugins** — same tool, filtered to plugins opening non-default services.
+4. **File-seeding patterns** — `architect_exploit_technique_list` filtered `implementationTypes: ['file_seeding']`.
+5. **Default infrastructure** — reachability via `architect_vlan_get` (zone membership + firewall rules determine whether a path exists).
+
+Only if **all five** return no match does Claude fall back to Run PS / Run Bash.
+
+**Expert-declaration skip.** If the user explicitly names an uncataloged technique ("I want ESC1", "install xrdp", "set up RBCD"), skip the ceremonial 5-query walk and log an assertion as per-hop field `expertDeclaration: "<note>"`.
+
+### Step 7 — Escape-hatch cap
+
+Per path: hops citing `Run PowerShell Script` OR `Run Bash Script` ≤ `min(2, ceil(hops * 0.20))`.
+
+**Free-a-slot refactor prompt.** When a new hop would trip the cap, first scan already-committed hops and offer:
+
+> "This would put us at 3 escape-hatch hops (cap: 2). Before I ask you to override, want me to refactor hop 1 — its ACL config could use default SMB behavior instead of a Run PS Script, which would free a slot. OK?"
+
+User accepts refactor (clean path), rejects (add `escapeHatchOverride: "<reason>"` on the new hop), or redirects.
+
+### Step 8 — Commit and hand off
+
+When the full path is sketched and user confirms, write `exploit.yml`. Always include `privilegeArcShape`. Include `bypassDecisions` if any bypasses were surfaced during per-hop audit (omit if none). Include `learningObjectives` only if the user provided them in the preamble. Do NOT invoke `architect-implementor` directly.
+
+Invoke the new validator: `Skill("rogue-build-scenario:architect-validator")` with the scenario directory path. Validator is the gate — it hands off to implementor after passing.
 
 ---
 
@@ -204,13 +316,9 @@ After all gates pass, self-review the YML files (placeholders, consistency, sche
 
 Then:
 
-> **All 4 phases complete.** Your scenario files are ready. I'll hand these to the
-> Rogue Architect implementor to build everything on your canvas.
->
-> Give me your canvas ID. If you don't have one, create a fresh canvas in the UI
-> and paste the ID here.
+> **All 4 phases complete.** Your scenario files are ready. The canvas ID was collected during Phase 3 — I'll stamp it into each YML file now and hand off to the validator.
 
-Collect canvas ID → stamp into all YML files → invoke `Skill("rogue-build-scenario:architect-implementor")` with the scenario directory path.
+Collect canvas ID → stamp into all YML files → invoke `Skill("rogue-build-scenario:architect-validator")` with the scenario directory path. Validator gates the implementor handoff.
 
 ## Workspace
 

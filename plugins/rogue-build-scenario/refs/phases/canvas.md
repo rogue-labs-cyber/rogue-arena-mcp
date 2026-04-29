@@ -1,16 +1,15 @@
 # Canvas Phase — Reference Doc
 
 > **For:** architect-implementor Phase B (canvas context step)
-> **Source:** Migrated from skills/canvas/SKILL.md
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 ---
 
 ## Overview
 
-The canvas phase is the first phase of the build cascade. No upstream dependencies. It produces company profile, character pool, leadership team, and technical infrastructure naming decisions consumed by all downstream phases (domains, machines, enrichment, exploits).
+The canvas phase is the first phase of the build cascade. No upstream dependencies. It produces company profile, leadership team, and technical infrastructure naming decisions consumed by all downstream phases (domains, machines, enrichment, exploits).
 
-The canvas phase brainstorms company context through a focused discovery session, then generates the foundational canvas blueprint — company profile, departments, fictional characters (50-150), leadership team, and technical infrastructure. Everything downstream (domains, VLANs, machines, files, exploit paths) builds on what this phase produces.
+The canvas phase brainstorms company context through a focused discovery session, then generates the foundational canvas blueprint — company profile, departments, leadership team, and technical infrastructure. Everything downstream (domains, VLANs, machines, files, exploit paths) builds on what this phase produces.
 
 ## Core Rules
 
@@ -111,9 +110,11 @@ Enrich thin prompts into distinctive company identities before dispatching Haiku
 
 ## Phase 2: Canvas Generation
 
+> **Staging:** Canvas bpData is staged per the Staged Dispatch Pattern in `refs/shared-rules.md`. Read the `architect_canvas_set_context` description for the path template (`staging/canvas-context/`) and section filenames; the orchestrator handles assembly and push. Inline bpData over 16 KB is rejected.
+
 Once the user confirms the brief, transition directly into generation:
 
-"Scenario brief is ready. Generating the canvas blueprint — company profile, character pool, and infrastructure naming."
+"Scenario brief is ready. Generating the canvas blueprint — company profile, leadership, and infrastructure naming."
 
 ### Generation Gates
 
@@ -123,37 +124,31 @@ Once the user confirms the brief, transition directly into generation:
 
 **GATE 3: Reference file paths in every dispatch.** Every Haiku dispatch includes ref file paths so Haiku can read size limits, hostname rules, and content policy before generating.
 
-**GATE 4: Inspect before storing.** After Haiku returns JSON, spot-check before calling `architect_canvas_set_context`: character count >= 50, leadership includes CEO + security leader, no content policy violations, prominence distribution not inverted. Re-dispatch with corrections if any check fails.
+**GATE 4: Inspect before storing.** After Haiku returns JSON, spot-check before calling `architect_canvas_set_context`: leadership includes CEO + security leader, no content policy violations. Re-dispatch with corrections if any check fails.
 
 The implementor runs completeness verification (`architect_canvas_get_completeness`) after this phase completes.
 
 ### Haiku Subagent Dispatch
 
-The implementor (orchestrator) handles workflow: reading state, deciding what to build, calling MCP tools. subagents handle bpData generation: the implementor gives them ref file paths + context, they return JSON. The implementor assembles their outputs into the final bpData payload and calls `architect_canvas_set_context` exactly ONCE with the complete payload.
+The implementor (orchestrator) handles workflow: reading state, deciding what to build, calling MCP tools. Subagents handle bpData generation: the implementor gives them ref file paths + context, they return JSON. The implementor assembles their output into the final bpData payload and calls `architect_canvas_set_context` exactly ONCE with the complete payload.
 
 See [shared-rules.md -- Haiku Subagent Dispatch Pattern](../shared-rules.md#haiku-subagent-dispatch-pattern) for the canonical template shape.
 
-**Split generation into 2 subagent calls to avoid the Read tool's 10K token limit:**
+**Use 1 subagent call:**
 
-1. **Subagent A — context sections (~15KB).** Dispatch a Haiku subagent to generate `companyProfile`, `leadership`, and `technicalInfra`. This fits within the Read tool's token limit and returns inline. Per-phase context block: include `<canvas-context>[architect_canvas_get_overview result]</canvas-context>` and `<user-request>[industry, size, themes, character style]</user-request>`.
+1. **Subagent — context sections (~15KB).** Dispatch a Haiku subagent to generate `companyProfile`, `leadership`, and `technicalInfra`. This fits within the Read tool's token limit and returns inline. Per-phase context block: include `<canvas-context>[architect_canvas_get_overview result]</canvas-context>` and `<user-request>[industry, size, themes]</user-request>`.
 
-2. **Subagent B — characters (~50KB).** Dispatch a second Haiku subagent to generate `fictionalCharacters` ONLY. Instruct it to write the JSON array to `/tmp/canvas-characters.json` using the Write tool and return only the file path — do NOT have it return 50KB inline. **Critical:** This subagent MUST receive the companyProfile output from Subagent A (specifically `departments`, `characterStyle`, `allowedFranchises`, `industry`, and `companyName`) so that character `suggestedBusinessUnit` values align with actual departments and `franchise` values match `characterStyle`.
-
-**Inline in the characters subagent dispatch:** "Character prominence distribution MUST follow: 9-10 (exec/C-suite) ~5%, 7-8 (directors/managers) ~10%, 5-6 (senior ICs) ~20%, 3-4 (regular employees) ~30%, 1-2 (entry-level/support) ~35%. Generate exact counts matching your pool size. Inverted distributions will be rejected and re-dispatched."
-
-**Assembly and storage:** After both subagents complete, spawn a single assembly subagent that: (1) receives the 3 context sections from Subagent A as prompt context, (2) reads `/tmp/canvas-characters.json`, (3) assembles the full bpData object with all sections, (4) calls `architect_canvas_set_context` ONCE with the complete payload. Do NOT call set_context twice — it uses REPLACE semantics and the second call would destroy the first call's data.
+**Storage:** After the subagent completes, the implementor assembles bpData from the subagent output and calls `architect_canvas_set_context` ONCE with the complete payload. Do NOT call set_context twice — it uses REPLACE semantics and the second call would destroy the first call's data.
 
 ### Validation Checklist
 
 Execution sequence — run before reporting success:
 
-1. **Character count** — 50+ characters in bpData (below 50 fails).
-2. **Prominence distribution** — executives ~5%, directors/managers ~10%, senior staff ~20%, regular ~30%, entry-level ~35%.
-3. **Leadership completeness** — CEO + security leader present; industry-specific roles included (CTO for tech, CFO for finance); team size matches size tier.
-4. **Headcount math** — maxUsers aligns with size tier from shared-rules.md; department headcounts sum to maxUsers (+/-5%).
-5. **Naming conventions** — hostname patterns match company size tier; OU structure matches maturity; security group prefixes correct (GG-/DL-/UG-).
-6. **Content policy** — zero violations; one violation rejects and re-dispatches.
-7. **Thematic fidelity** — company profile reflects requested industry/franchise/themes, not a generic placeholder.
+1. **Leadership completeness** — CEO + security leader present; industry-specific roles included (CTO for tech, CFO for finance); team size matches size tier.
+2. **Headcount math** — maxUsers aligns with size tier from shared-rules.md; department headcounts sum to maxUsers (+/-5%).
+3. **Naming conventions** — hostname patterns match company size tier; OU structure matches maturity; security group prefixes correct (GG-/DL-/UG-).
+4. **Content policy** — zero violations; one violation rejects and re-dispatches.
+5. **Thematic fidelity** — company profile reflects requested industry/franchise/themes, not a generic placeholder.
 
 ### Modify Flow
 
@@ -184,11 +179,6 @@ Shared reference data (company size tiers, security posture enum, industry regul
 - **Leadership team:** CEO plus at least one security leader (CISO/CIO/VP IT). Industry-specific additions — CTO (tech), CFO (finance), CMO (healthcare). Background split 40-60% internal promotions / 40-60% external hires. At least one leader with security-relevant vulnerabilities.
 - **Corporate structure to AD forest:** Subsidiaries become parent-child domains. Recent acquisitions become separate forests with trusts. Business units become domain trees. Geographic divisions become site-based child domains.
 
-### Character Pool Modes
-
-- **REALISTIC** — modern professional names, diverse global ethnicities, no franchise association. Default for ambiguous cases.
-- **POPCULTURE** — canonical fictional characters from allowed franchises. Exhaust the canonical pool (main cast through named background characters) before creating originals. Sub-modes: single franchise, restricted multi-franchise, mixed. Originals feel native — use franchise naming conventions and cultural patterns. Single-name characters get universe-appropriate surnames. No duplicate firstName+lastName combinations; no reused first or last names within a batch.
-
 ### Infrastructure Naming
 
 Canvas produces the *decision* of which naming conventions the company uses (picking one admin account convention, choosing parent-child vs resource forest topology, etc.) and records it in the brief. The canonical pattern rules (username formats, domain suffixes, hostname rules) live in [shared-rules.md](../shared-rules.md) — this phase doc does not restate them. Record the picks in `keyDecisions` so downstream phases know which variant to apply.
@@ -200,7 +190,6 @@ Canvas produces the *decision* of which naming conventions the company uses (pic
 - Haiku generates bpData; the canvas phase passes it through to the `bpData` field on `architect_canvas_set_context`.
 - The `prompt` field is optional metadata for the audit trail.
 - `architect_canvas_set_context` auto-stores `company_context` and `user_profiles` for downstream consumers — no extra storage calls needed.
-- Target 50-150 quality characters; the hub auto-pads to target count.
 - The implementor runs completeness verification (`architect_canvas_get_completeness`) after this phase completes.
 - Every company uses modern enterprise IT infrastructure (Active Directory, contemporary databases, standard networking) regardless of fictional setting. Department names and themes can be fictional; IT infrastructure stays modern.
 - If a machine or VM limit is specified, reflect that limit exactly in `totalMachines` and capture the constraint verbatim.

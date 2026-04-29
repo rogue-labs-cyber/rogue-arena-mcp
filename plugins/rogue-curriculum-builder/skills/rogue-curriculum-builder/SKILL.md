@@ -1,6 +1,6 @@
 ---
 name: rogue-curriculum-builder
-description: "Build and edit Rogue Arena curriculum content. Triggers: 'create chapters', 'add sections', 'build curriculum', 'edit content', 'add CTF nodes', 'insert media', 'unlock keys', 'populate chapters', 'reorder blocks', 'bulk create'. Handles LINEAR and CTF layouts with 21 CURRICULUM tools."
+description: "Build and edit Rogue Arena curriculum content. Triggers: 'create chapters', 'add sections', 'build curriculum', 'edit content', 'add CTF nodes', 'insert media', 'unlock keys', 'populate chapters', 'reorder blocks', 'bulk create'. Handles LINEAR and CTF layouts with 22 CURRICULUM tools."
 disable-model-invocation: true
 ---
 
@@ -74,7 +74,7 @@ You have access to Rogue Arena's curriculum tools via MCP. These tools let you b
 Complete these four steps BEFORE any other action. No exceptions — not for "quick fixes," not for "just one block edit," not for any reason.
 
 1. **Get curriculum version ID** — Ask the user for a curriculum version ID. Do not guess or proceed without one. If you skip this, every subsequent tool call targets nothing.
-2. **Discover tools** — Call `discover_tools(category: "CURRICULUM")` to register all 21 curriculum tools. If you skip this, most tools will not be available.
+2. **Discover tools** — Call `discover_tools(category: "CURRICULUM")` to register all 22 curriculum tools. If you skip this, most tools will not be available.
 3. **Fetch metadata** — Call `curriculum_get_version` with the version ID. Read the `layoutType` field: **LINEAR** (sections containing ordered chapters) or **CTF** (nodes connected by edges on a 2D graph). If you skip this, you will call the wrong tools for the layout type.
 4. **Read full structure** — Call `curriculum_get_sections` (LINEAR) or `curriculum_get_ctf_nodes` (CTF). If you skip this, you will create duplicates or overwrite existing content you did not know about.
 
@@ -123,10 +123,10 @@ Adapt your language to the layout type:
 After the hard gates, classify the user's request. **Announce your classification before acting.** State: (1) the category, (2) the evidence from your structure read that supports it, and (3) your plan. This prevents silent misrouting.
 
 **Build from scratch** — Empty curriculum + user wants sections/chapters created.
-- Create sections first, then chapters within each section, then populate with blocks via `curriculum_bulk_insert_blocks`.
+- Create sections first with `curriculum_create_section`, then chapters within each section with `curriculum_create_chapter`, then populate with blocks via `curriculum_bulk_insert_blocks`.
 
 **Edit existing content** — User references a specific chapter or block.
-- Call `curriculum_get_chapter_blocks` on the target chapter. Make surgical edits with `curriculum_update_block`, `curriculum_insert_block`, or `curriculum_remove_block`.
+- Call `curriculum_get_chapter_blocks` on the target chapter. Make surgical edits with `curriculum_update_block`, `curriculum_insert_block`, or `curriculum_remove_block`. To rename or reposition a chapter, use `curriculum_update_chapter`.
 
 **Bulk populate** — User wants many chapters filled with content.
 - Iterate chapters, use `curriculum_bulk_insert_blocks` per chapter. Report progress every 5-10 chapters. Do not ask for confirmation on each chapter.
@@ -137,6 +137,9 @@ After the hard gates, classify the user's request. **Announce your classificatio
 **Unlock keys** — User mentions locking, flags, keys, or challenge gating.
 - Call `curriculum_get_unlock_key_candidates` to see available machines from the linked canvas
 - Ask which chapter/node, what key value, what hint, and optionally which machine the key is tied to. Use `curriculum_add_unlock_key`.
+
+**Quiz questions** — User wants to create, update, or delete quiz questions on a chapter or node.
+- Use `curriculum_manage_questions` to add, edit, or remove questions. Always call `curriculum_get_chapter_blocks` first to confirm the target chapter exists and note any existing question blocks.
 
 **Media insertion** — User wants images, videos, or PDFs in content.
 - Call `curriculum_search_media` or `curriculum_browse_media`. Present results. Insert as the appropriate block type. See `refs/media-workflow.md` for schemas.

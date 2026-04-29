@@ -104,11 +104,11 @@ Then, to be absolutely clear: **NEVER use the Bash tool to run commands intended
 
 | Thought | Reality |
 |---------|---------|
-| "I'll just run this command via Bash, it's faster." | NEVER. Bash hits the host machine. All VM commands go through `exec_command`. No exceptions. |
+| "I'll just run this command via Bash, it's faster." | NEVER. Bash hits the host machine. All VM commands go through `deployment_exec_command`. No exceptions. |
 | "I'll snapshot before each command to be safe." | Snapshots are expensive async operations. One before a testing cycle starts, revert when done. Not per-action. |
-| "The user said it's Windows, so I'll use PowerShell syntax." | Check `operatingSystem` from `list_vms`. Don't assume — the user may be wrong, or the VM may differ from expectation. |
+| "The user said it's Windows, so I'll use PowerShell syntax." | Check `operatingSystem` from `deployment_list_vms`. Don't assume — the user may be wrong, or the VM may differ from expectation. |
 | "I'll show the user all the credentials so they have them." | Don't dump credentials unprompted. Use them when needed for auth commands (runas, su, ssh). |
-| "The revert finished, I can keep using the old VM data." | After revert completes, re-run `list_vms`. IPs and status may have changed. Stale data leads to failed commands. |
+| "The revert finished, I can keep using the old VM data." | After revert completes, re-run `deployment_list_vms`. IPs and status may have changed. Stale data leads to failed commands. |
 
 ## Why These Rules Exist
 
@@ -121,29 +121,29 @@ After the hard gates, classify the user's request. **Announce your classificatio
 | Classification | Evidence | Action |
 |---|---|---|
 | **Investigate** | "What's running?", "show me the VMs" | Already done in hard gate 3 — present the VM list |
-| **Run command** | "Execute this", "run nmap", "check the logs" | `exec_command` with OS-correct syntax |
+| **Run command** | "Execute this", "run nmap", "check the logs" | `deployment_exec_command` with OS-correct syntax |
 | **Testing loop** | "Test this payload", "try this exploit" | Snapshot → exec → observe → revert → iterate |
 | **Maldev / detection testing** | "Test my tool against detections", "maldev loop", "research TTPs", "build a playbook", "maldev quickstart", "test techniques" | Offer: "Want me to run the maldev loop — snapshot, execute, SIEM query, revert, iterate? I can research TTPs and build a playbook first if you need, or jump straight to testing your tool." If yes, invoke `rogue-active-deployment:rogue-maldev` |
-| **Browse filesystem** | "What's on this machine?", "find the flag" | `dir_listing` with OS-appropriate root |
-| **Read file contents** | "Show me that config", "grab the log" | `read_file` — use mode head/tail/range. For binary files use `download_file` |
-| **Search file contents** | "Find passwords in config files", "grep for credentials" | `grep_file` with pattern and optional regex/context |
-| **List processes** | "What's running on this box?", "check for AV" | `process_list` — optionally filter by name |
-| **Log findings** | "Found creds", "got a foothold", "note this" | `diary_write` with appropriate entryType (credential, foothold, loot, etc.) |
-| **Review progress** | "What have we found?", "show engagement notes" | `diary_read` — optionally filter by entryType |
-| **Debug** | "Why isn't this working?", "it's not connecting" | `list_vms` for status → `exec_command` for diagnostics → iterate |
+| **Browse filesystem** | "What's on this machine?", "find the flag" | `deployment_dir_listing` with OS-appropriate root |
+| **Read file contents** | "Show me that config", "grab the log" | `deployment_read_file` — use mode head/tail/range. For binary files use `deployment_download_file` |
+| **Search file contents** | "Find passwords in config files", "grep for credentials" | `deployment_grep_file` with pattern and optional regex/context |
+| **List processes** | "What's running on this box?", "check for AV" | `deployment_process_list` — optionally filter by name |
+| **Log findings** | "Found creds", "got a foothold", "note this" | `deployment_diary_write` with appropriate entryType (credential, foothold, loot, etc.) |
+| **Review progress** | "What have we found?", "show engagement notes" | `deployment_diary_read` — optionally filter by entryType |
+| **Debug** | "Why isn't this working?", "it's not connecting" | `deployment_list_vms` for status → `deployment_exec_command` for diagnostics → iterate |
 
 ## OS-Aware Commands
 
-Always check `operatingSystem` from `list_vms` before picking syntax:
+Always check `operatingSystem` from `deployment_list_vms` before picking syntax:
 
 | Action | Windows | Linux |
 |---|---|---|
-| List files | `dir C:\Users` or `dir_listing` | `ls /home` or `dir_listing` |
-| Read file | `read_file` (preferred) or `type` via exec | `read_file` (preferred) or `cat` via exec |
-| Search file | `grep_file` (preferred) or `findstr` via exec | `grep_file` (preferred) or `grep` via exec |
+| List files | `dir C:\Users` or `deployment_dir_listing` | `ls /home` or `deployment_dir_listing` |
+| Read file | `deployment_read_file` (preferred) or `type` via exec | `deployment_read_file` (preferred) or `cat` via exec |
+| Search file | `deployment_grep_file` (preferred) or `findstr` via exec | `deployment_grep_file` (preferred) or `grep` via exec |
 | Network info | `ipconfig /all` | `ip addr` |
 | Current user | `whoami /priv` | `whoami` |
-| Running processes | `process_list` (preferred) or `tasklist` via exec | `process_list` (preferred) or `ps aux` via exec |
+| Running processes | `deployment_process_list` (preferred) or `tasklist` via exec | `deployment_process_list` (preferred) or `ps aux` via exec |
 | Filesystem root | `C:\` | `/` |
 
 ## Snapshot Discipline
@@ -151,8 +151,8 @@ Always check `operatingSystem` from `list_vms` before picking syntax:
 Snapshots and reverts are async operations. Follow this pattern strictly:
 
 1. **One snapshot per testing cycle** — not per command, not per upload. Snapshot once before the cycle starts.
-2. **Poll after snapshot/revert** — call `get_active_tasks` every ~10 seconds. Max 12 polls (~2 minutes). If still running, inform the user.
-3. **Refresh VMs after revert** — always call `list_vms` after a revert completes. IPs and status may have changed.
+2. **Poll after snapshot/revert** — call `deployment_get_active_tasks` every ~10 seconds. Max 12 polls (~2 minutes). If still running, inform the user.
+3. **Refresh VMs after revert** — always call `deployment_list_vms` after a revert completes. IPs and status may have changed.
 4. **Warn before reverting** — reverting stops the VM and rolls back all changes since the snapshot. Confirm with the user first.
 
 ## Locked Deployments
@@ -161,14 +161,14 @@ Some deployments are locked (read-only mode). When locked:
 
 | Works | Blocked |
 |---|---|
-| `list_vms` | `exec_command` |
-| `dir_listing` | `create_snapshot` |
-| `read_file` | `revert_snapshot` |
-| `grep_file` | |
-| `process_list` | |
-| `diary_read` | |
-| `diary_write` | |
-| `get_active_tasks` | |
+| `deployment_list_vms` | `deployment_exec_command` |
+| `deployment_dir_listing` | `deployment_create_snapshot` |
+| `deployment_read_file` | `deployment_revert_snapshot` |
+| `deployment_grep_file` | |
+| `deployment_process_list` | |
+| `deployment_diary_read` | |
+| `deployment_diary_write` | |
+| `deployment_get_active_tasks` | |
 
 If a tool call fails on a locked deployment, inform the user that the deployment is locked and only read operations are available.
 
@@ -182,16 +182,16 @@ Three personas use this skill. All get the same minimal guardrails — these are
 
 ## Credentials
 
-`list_vms` returns credentials (username, password, unlockKeys). Use these when needed for authentication commands (runas, su, ssh) but never dump them unprompted.
+`deployment_list_vms` returns credentials (username, password, unlockKeys). Use these when needed for authentication commands (runas, su, ssh) but never dump them unprompted.
 
 ## Constraints
 
 - This skill is fully independent from `rogue-build-scenario`. Different VM classes, different tools, no overlap.
 - Use `deployment_diary_write` to log credentials, loot, and engagement progress. Use `deployment_diary_read` at the START of every session to review prior findings. These are NOT the same as canvas `diary_read`/`diary_write` (those are for scenario building).
 - Warn before destructive commands (`rm -rf`, `format`, `del /s`) and before snapshot reverts.
-- Prefer `read_file` over `exec_command` + `cat`/`type` for reading files. Prefer `grep_file` over `exec_command` + `grep`/`findstr` for searching. Prefer `process_list` over `exec_command` + `ps`/`tasklist` for process listing. The dedicated tools are faster and return structured data.
-- Use `dir_listing` to confirm remote file paths before reading file contents.
+- Prefer `deployment_read_file` over `deployment_exec_command` + `cat`/`type` for reading files. Prefer `deployment_grep_file` over `deployment_exec_command` + `grep`/`findstr` for searching. Prefer `deployment_process_list` over `deployment_exec_command` + `ps`/`tasklist` for process listing. The dedicated tools are faster and return structured data.
+- Use `deployment_dir_listing` to confirm remote file paths before reading file contents.
 
 ---
 
-**Remember: `exec_command` for VMs. NEVER Bash. Bash hits the host machine.**
+**Remember: `deployment_exec_command` for VMs. NEVER Bash. Bash hits the host machine.**

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { Upload } from "tus-js-client";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -7,85 +8,19 @@ import type { HubClient } from "./hub-client.js";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { randomUUID } from "node:crypto";
-
-const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MiB
-const UPLOAD_BPS = 20 * 1024 * 1024; // 20 MB/s cap
-
-// Fail-fast UUID check. Vaults' Zod schema validates the same way server-side,
-// but catching the common LLM typo here avoids a pointless TCP + TUS round-trip.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// ── Async transfer tracking ────────────────────────────────────────
-const MAX_CONCURRENT_TRANSFERS = 5;
-const TRANSFER_CLEANUP_MS = 300_000; // 5 minutes
-
-interface TransferState {
-  transferId: string;
-  fileName: string;
-  direction: "upload" | "download";
-  status: "in_progress" | "completed" | "failed" | "cancelled";
-  depVMId: string;
-  localPath: string;
-  bytesTransferred: number;
-  totalBytes: number;
-  startTime: string;
-  endTime?: string;
-  error?: string;
-  _abortController?: AbortController;
-  _tusUpload?: Upload;
-  _writeStream?: fs.WriteStream;
-}
-
-const activeTransfers = new Map<string, TransferState>();
-
-function finishTransfer(
-  state: TransferState,
-  status: "completed" | "failed" | "cancelled",
-  error?: string
-): void {
-  if (state.status !== "in_progress") return;
-  state.status = status;
-  state.endTime = new Date().toISOString();
-  if (error) state.error = error;
-  state._abortController = undefined;
-  state._tusUpload = undefined;
-  state._writeStream = undefined;
-  setTimeout(() => activeTransfers.delete(state.transferId), TRANSFER_CLEANUP_MS);
-}
-
-function countActiveTransfers(): number {
-  let count = 0;
-  for (const t of activeTransfers.values()) {
-    if (t.status === "in_progress") count++;
-  }
-  return count;
-}
-
-function findDuplicateTransfer(localPath: string): TransferState | undefined {
-  for (const t of activeTransfers.values()) {
-    if (t.status === "in_progress" && t.localPath === localPath) return t;
-  }
-  return undefined;
-}
-
-function serializeTransfer(state: TransferState): Record<string, unknown> {
-  const result: Record<string, unknown> = {
-    transferId: state.transferId,
-    fileName: state.fileName,
-    direction: state.direction,
-    status: state.status,
-    depVMId: state.depVMId,
-    bytesTransferred: state.bytesTransferred,
-    totalBytes: state.totalBytes,
-    startTime: state.startTime,
-  };
-  if (state.totalBytes > 0) {
-    result.progressPercent = Math.round((state.bytesTransferred / state.totalBytes) * 100);
-  }
-  if (state.endTime) result.endTime = state.endTime;
-  if (state.error) result.error = state.error;
-  return result;
-}
+import {
+  startTusUpload,
+  activeTransfers,
+  serializeTransfer,
+  finishTransfer,
+  countActiveTransfers,
+  findDuplicateTransfer,
+  MAX_CONCURRENT_TRANSFERS,
+  CHUNK_SIZE,
+  UPLOAD_BPS,
+  type TransferState,
+  type TargetKind,
+} from "./tus-core.js";
 
 // ── Async script run tracking ────────────────────────────────────────
 const MAX_CONCURRENT_SCRIPT_RUNS = 10;
@@ -215,34 +150,161 @@ function validateLocalPath(rawPath: string, operation: "read" | "write"): string
   return realPath;
 }
 
+// ── Zod schemas ──────────────────────────────────────────────────────
+
+const PluginDevUploadSchema = z
+  .object({
+    pluginVersionId: z.string().uuid(),
+    localFilePath: z.string().min(1),
+  })
+  .strict();
+
+const ArchitectVaultUploadSchema = z
+  .object({
+    machineId: z.string().uuid(),
+    localFilePath: z.string().min(1),
+    vaultSubPath: z.string().optional(),
+  })
+  .strict();
+
+const DeploymentUploadSchema = z
+  .object({
+    depVMId: z.string().uuid(),
+    localFilePath: z.string().min(1),
+    destinationPath: z.string().min(1),
+  })
+  .strict();
+
+const DeploymentDownloadSchema = z
+  .object({
+    depVMId: z.string().uuid(),
+    remoteFilePath: z.string().min(1),
+    localDestinationPath: z.string().min(1),
+  })
+  .strict();
+
+const TransferStatusSchema = z
+  .object({
+    transferId: z.string().uuid().optional(),
+  })
+  .strict();
+
+const TransferCancelSchema = z
+  .object({
+    transferId: z.string().uuid(),
+  })
+  .strict();
+
+const RunScriptBgSchema = z
+  .object({
+    deploymentRecordId: z.string().uuid(),
+    depVMId: z.string().uuid(),
+    script: z.string().min(1).max(1_048_576),
+    shell: z.enum(["bash", "powershell", "sh", "python3"]).optional(),
+    timeoutSecs: z.number().int().min(1).max(600).optional(),
+    maxOutputChars: z.number().int().min(1000).max(100000).optional(),
+  })
+  .strict();
+
+const ScriptStatusSchema = z
+  .object({
+    scriptRunId: z.string().uuid().optional(),
+  })
+  .strict();
+
+const ScriptCancelSchema = z
+  .object({
+    scriptRunId: z.string().uuid(),
+  })
+  .strict();
+
+function parseInput<T>(
+  schema: z.ZodType<T>,
+  args: Record<string, unknown>
+): { success: true; data: T } | { success: false; error: string } {
+  const result = schema.safeParse(args);
+  if (result.success) return { success: true, data: result.data };
+  return {
+    success: false,
+    error: result.error.issues
+      .map((i) => `${i.path.length ? i.path.join(".") + ": " : ""}${i.message}`)
+      .join("; "),
+  };
+}
+
 export interface LocalToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
 }
 
+// INVARIANT: aliased local tools (plugin_dev_transfer_status, architect_transfer_status,
+// and their *_cancel counterparts) must always appear in ListTools unconditionally.
+// discover_tools in meta-tools.ts queries only alwaysToolsCache + discoverableToolsCache,
+// not LOCAL_TOOLS — if LOCAL_TOOLS is ever filtered by category without also surfacing
+// aliases into discover_tools, these tools will vanish from the model's view.
 export const LOCAL_TOOLS: LocalToolDefinition[] = [
   {
     name: "plugin_dev_upload_to_vault",
     description:
-      "Upload a local file to a plugin version's vault using TUS resumable upload. Supports large files (multi-GB). Requires pluginVersionId, vaultId (from plugin_dev_get_version), and local file path.",
+      "Upload a local file to a plugin version's vault using TUS resumable upload. " +
+      "Supports large files (multi-GB). Starts the transfer in the background and returns " +
+      "immediately with a transferId. Use plugin_dev_transfer_status to poll progress every " +
+      "10-15 seconds; cancel via plugin_dev_transfer_cancel.",
     inputSchema: {
       type: "object" as const,
       properties: {
         pluginVersionId: {
           type: "string",
+          format: "uuid",
           description: "UUID of the plugin version",
-        },
-        vaultId: {
-          type: "string",
-          description: "UUID of the vault (from plugin_dev_get_version response)",
         },
         localFilePath: {
           type: "string",
+          minLength: 1,
           description: "Absolute path to the file on the local machine",
         },
       },
-      required: ["pluginVersionId", "vaultId", "localFilePath"],
+      required: ["pluginVersionId", "localFilePath"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "architect_machine_vault_upload",
+    description:
+      "Upload a local file (exe, zip, binary, any file type) into a machine's vault in the " +
+      "scenario-builder canvas. Machine vault is created by Apply Plan — call this tool " +
+      "post-Apply; pre-Apply draft machines have no vault and the tool returns VAULT_NOT_FOUND. " +
+      "MVP only supports uploads to vault root (vaultSubPath='/'). If a file with the same name " +
+      "exists in the root, vaults uniquifies to '<name> copy N<ext>' (up to 100 tries); poll " +
+      "architect_transfer_status to read the final persisted filename. " +
+      "Starts the transfer in the background and returns immediately with a transferId. " +
+      "Poll architect_transfer_status every 10-15 seconds; cancel via architect_transfer_cancel. " +
+      "**Uploading a file is not sufficient to deliver it to the VM.** After uploading, apply the \"File Copy\" plugin so the file lands on the target at deploy time: " +
+      "1. architect_plugin_catalog_search({ searchTerm: \"file copy\" }) → find the File Copy plugin (exact name match surfaces it first). " +
+      "2. architect_assigned_plugin_add with that pluginID and runOrderSequence. " +
+      "3. architect_assigned_plugin_set_params with source (forward-slash vault path, e.g. \"C:/Users/jsmith/Desktop/report.xlsx\"), destination (target VM path), isFolder, copyContentsOfFolder. " +
+      "Prefer folder-level delivery over per-file calls: upload a zip or use a trailing-slash source with isFolder=\"true\" and copyContentsOfFolder=\"true\" to copy an entire directory (e.g. all files on Desktop) in one plugin rather than one plugin per file.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        machineId: {
+          type: "string",
+          format: "uuid",
+          description: "UUID of the post-Apply machine node",
+        },
+        localFilePath: {
+          type: "string",
+          minLength: 1,
+          description: "Absolute path to the file on the local machine",
+        },
+        vaultSubPath: {
+          type: "string",
+          description: "Folder inside the vault. MVP: must be '/' or omitted.",
+        },
+      },
+      required: ["machineId", "localFilePath"],
+      additionalProperties: false,
     },
   },
   {
@@ -254,18 +316,22 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
       properties: {
         depVMId: {
           type: "string",
+          format: "uuid",
           description: "UUID of the deployment VM",
         },
         localFilePath: {
           type: "string",
+          minLength: 1,
           description: "Absolute path to the file on the local machine",
         },
         destinationPath: {
           type: "string",
+          minLength: 1,
           description: "Full destination path on the VM (e.g. /home/user/file.txt)",
         },
       },
       required: ["depVMId", "localFilePath", "destinationPath"],
+      additionalProperties: false,
     },
   },
   {
@@ -277,18 +343,22 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
       properties: {
         depVMId: {
           type: "string",
+          format: "uuid",
           description: "UUID of the deployment VM",
         },
         remoteFilePath: {
           type: "string",
+          minLength: 1,
           description: "Full path to the file on the VM (e.g. /home/user/file.txt)",
         },
         localDestinationPath: {
           type: "string",
+          minLength: 1,
           description: "Absolute local path where the file should be saved",
         },
       },
       required: ["depVMId", "remoteFilePath", "localDestinationPath"],
+      additionalProperties: false,
     },
   },
   {
@@ -300,10 +370,12 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
       properties: {
         transferId: {
           type: "string",
+          format: "uuid",
           description: "Optional: UUID of a specific transfer to check. Omit to see all transfers.",
         },
       },
       required: [],
+      additionalProperties: false,
     },
   },
   {
@@ -315,10 +387,86 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
       properties: {
         transferId: {
           type: "string",
+          format: "uuid",
           description: "UUID of the transfer to cancel (from deployment_upload_file or deployment_download_file response)",
         },
       },
       required: ["transferId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "plugin_dev_transfer_status",
+    description:
+      "Check progress of plugin_dev_upload_to_vault transfers. Returns all active and recently " +
+      "completed transfers. Poll every 10-15 seconds. On completed, the response carries the " +
+      "final persisted fileName (vaults may uniquify on collision). If concurrency is saturated, " +
+      "cancel stalled transfers via plugin_dev_transfer_cancel before launching new batches.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        transferId: {
+          type: "string",
+          format: "uuid",
+          description: "Optional: UUID of a specific transfer to check. Omit to see all transfers.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "plugin_dev_transfer_cancel",
+    description:
+      "Cancel an in-progress plugin_dev_upload_to_vault by transferId.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        transferId: {
+          type: "string",
+          format: "uuid",
+          description: "UUID of the transfer to cancel (from plugin_dev_upload_to_vault response).",
+        },
+      },
+      required: ["transferId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "architect_transfer_status",
+    description:
+      "Check progress of architect_machine_vault_upload transfers. Returns all active and " +
+      "recently completed transfers. Poll every 10-15 seconds. On completed, the response " +
+      "carries the final persisted fileName (vaults may uniquify on collision). If concurrency " +
+      "is saturated, cancel stalled transfers via architect_transfer_cancel before launching new batches.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        transferId: {
+          type: "string",
+          format: "uuid",
+          description: "Optional: UUID of a specific transfer to check. Omit to see all transfers.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "architect_transfer_cancel",
+    description:
+      "Cancel an in-progress architect_machine_vault_upload by transferId.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        transferId: {
+          type: "string",
+          format: "uuid",
+          description: "UUID of the transfer to cancel (from architect_machine_vault_upload response).",
+        },
+      },
+      required: ["transferId"],
+      additionalProperties: false,
     },
   },
   {
@@ -343,14 +491,18 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
       properties: {
         deploymentRecordId: {
           type: "string",
+          format: "uuid",
           description: "UUID of the deployment record",
         },
         depVMId: {
           type: "string",
+          format: "uuid",
           description: "UUID of the deployed VM to run the script on",
         },
         script: {
           type: "string",
+          minLength: 1,
+          maxLength: 1048576,
           description:
             "Multi-line script content to execute (max 1MB). Supports full shell syntax including variables, loops, pipes, heredocs, and nested quotes.",
         },
@@ -374,6 +526,7 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
         },
       },
       required: ["deploymentRecordId", "depVMId", "script"],
+      additionalProperties: false,
     },
   },
   {
@@ -391,11 +544,13 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
       properties: {
         scriptRunId: {
           type: "string",
+          format: "uuid",
           description:
             "Optional: UUID of a specific script run to check. Omit to see all script runs.",
         },
       },
       required: [],
+      additionalProperties: false,
     },
   },
   {
@@ -410,10 +565,12 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
       properties: {
         scriptRunId: {
           type: "string",
+          format: "uuid",
           description: "UUID of the script run to cancel (from deployment_run_script_bg response)",
         },
       },
       required: ["scriptRunId"],
+      additionalProperties: false,
     },
   },
 ];
@@ -431,14 +588,24 @@ export async function handleLocalTool(
   switch (name) {
     case "plugin_dev_upload_to_vault":
       return handleTusUpload(args, auth);
+    case "architect_machine_vault_upload":
+      return handleArchitectMachineVaultUpload(args, auth);
     case "deployment_upload_file":
       return handleActiveDeploymentUpload(args, auth);
     case "deployment_download_file":
       return handleActiveDeploymentDownload(args, auth);
     case "deployment_transfer_status":
-      return handleTransferStatus(args);
+      return handleTransferStatus(args, "vm");
+    case "plugin_dev_transfer_status":
+      return handleTransferStatus(args, "pluginVault");
+    case "architect_transfer_status":
+      return handleTransferStatus(args, "machineVault");
     case "deployment_transfer_cancel":
-      return handleTransferCancel(args);
+      return handleTransferCancel(args, "vm");
+    case "plugin_dev_transfer_cancel":
+      return handleTransferCancel(args, "pluginVault");
+    case "architect_transfer_cancel":
+      return handleTransferCancel(args, "machineVault");
     case "deployment_run_script_bg":
       return handleRunScriptBg(args, hub);
     case "deployment_script_status":
@@ -457,18 +624,19 @@ async function handleTusUpload(
   args: Record<string, unknown>,
   auth: AuthProvider
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
-  const pluginVersionId = args["pluginVersionId"] as string;
-  const vaultId = args["vaultId"] as string;
-  const localFilePath = validateLocalPath(args["localFilePath"] as string, "read");
+  const parsed = parseInput(PluginDevUploadSchema, args);
+  if (!parsed.success) {
+    return { content: [{ type: "text", text: parsed.error }], isError: true };
+  }
+  const { pluginVersionId } = parsed.data;
+  const localFilePath = validateLocalPath(parsed.data.localFilePath, "read");
 
-  // Validate file exists
   if (!fs.existsSync(localFilePath)) {
     return {
       content: [{ type: "text", text: `File not found: ${localFilePath}` }],
       isError: true,
     };
   }
-
   const fileStats = fs.statSync(localFilePath);
   if (!fileStats.isFile()) {
     return {
@@ -477,120 +645,215 @@ async function handleTusUpload(
     };
   }
 
+  if (countActiveTransfers() >= MAX_CONCURRENT_TRANSFERS) {
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            `Too many active transfers (max ${MAX_CONCURRENT_TRANSFERS}). ` +
+            `Use plugin_dev_transfer_status to check progress, or cancel a ` +
+            `stalled transfer via plugin_dev_transfer_cancel.`,
+        },
+      ],
+      isError: true,
+    };
+  }
+  const duplicate = findDuplicateTransfer(localFilePath, "pluginVault", pluginVersionId);
+  if (duplicate) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `A transfer is already in progress for this path+target. transferId: ${duplicate.transferId}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
   const originalFileName = path.basename(localFilePath);
   const fileFilesizeBytes = String(fileStats.size);
-
-  // Determine vaults URL
   const vaultsUrl =
     process.env.ROGUE_VAULTS_URL ?? process.env.ROGUE_HUB_URL ?? "https://arena.roguelabs.io";
-
   const endpoint = `${vaultsUrl}/vaults/TUSUpload`;
 
-  // Get auth headers
-  const authHeaders = await auth.getHeaders();
-  // Strip Content-Type — TUS sets its own
-  const { "Content-Type": _ct, ...tusHeaders } = authHeaders;
-
-  console.error(
-    `[rogue-arena-mcp] TUS upload: ${originalFileName} (${fileStats.size} bytes) → ${endpoint}`
-  );
-
-  return new Promise((resolve) => {
-    // Track last-logged percentage for 10% interval reporting
-    let lastLoggedPct = -1;
-
-    // Throttle tracking: time of last chunk start and bytes sent in current chunk window
-    let lastChunkTime = Date.now();
-
-    const fileStream = fs.createReadStream(localFilePath);
-
-    const upload = new Upload(fileStream, {
+  try {
+    const handle = startTusUpload({
       endpoint,
-      chunkSize: CHUNK_SIZE,
-      uploadSize: fileStats.size,
-      headers: tusHeaders,
-      metadata: {
+      localFilePath,
+      auth,
+      tusMetadata: {
         originalFileName,
-        vaultID: vaultId,
+        vaultID: "",
+        vaultType: "scenarioBuilderPlugin",
+        uniqueFilterID: pluginVersionId,
         depVMID: "",
         destinationType: "vault",
         fullPathToDestinationFolder: "/",
         fileFilesizeBytes,
       },
-      retryDelays: [0, 3000, 5000, 10000],
-      onBeforeRequest: (req) => {
-        // Throttle PATCH requests to ~20 MB/s by sleeping between chunks
-        if (req.getMethod() === "PATCH") {
-          const now = Date.now();
-          const elapsed = now - lastChunkTime;
-          const expectedMs = Math.floor((CHUNK_SIZE / UPLOAD_BPS) * 1000);
-          const sleepMs = expectedMs - elapsed;
-          if (sleepMs > 0) {
-            return new Promise((res) => setTimeout(res, sleepMs));
-          }
-          lastChunkTime = now;
-        }
-      },
-      onProgress: (bytesSent, bytesTotal) => {
-        if (bytesTotal > 0) {
-          const pct = Math.floor((bytesSent / bytesTotal) * 100);
-          const logPct = Math.floor(pct / 10) * 10;
-          if (logPct > lastLoggedPct) {
-            lastLoggedPct = logPct;
-            console.error(
-              `[rogue-arena-mcp] TUS upload progress: ${logPct}% (${bytesSent}/${bytesTotal} bytes)`
-            );
-          }
-        }
-      },
-      onSuccess: () => {
-        console.error(`[rogue-arena-mcp] TUS upload complete: ${originalFileName}`);
-        resolve({
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                {
-                  success: true,
-                  fileName: originalFileName,
-                  fileSizeBytes: fileStats.size,
-                  vaultId,
-                  pluginVersionId,
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        });
-      },
-      onError: (err) => {
-        console.error(`[rogue-arena-mcp] TUS upload error: ${err.message}`);
-        resolve({
-          content: [{ type: "text", text: `Upload failed: ${err.message}` }],
-          isError: true,
-        });
-      },
+      targetKind: "pluginVault",
+      targetId: pluginVersionId,
     });
 
-    upload.start();
-  });
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              transferId: handle.transferId,
+              fileName: handle.fileName,
+              totalBytes: handle.totalBytes,
+              message:
+                "Upload started. Use plugin_dev_transfer_status to poll progress; " +
+                "cancel via plugin_dev_transfer_cancel.",
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  } catch (err) {
+    return {
+      content: [{ type: "text", text: (err as Error).message }],
+      isError: true,
+    };
+  }
+}
+
+async function handleArchitectMachineVaultUpload(
+  args: Record<string, unknown>,
+  auth: AuthProvider
+): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
+  const parsed = parseInput(ArchitectVaultUploadSchema, args);
+  if (!parsed.success) {
+    return { content: [{ type: "text", text: parsed.error }], isError: true };
+  }
+  const { machineId } = parsed.data;
+  const localFilePath = validateLocalPath(parsed.data.localFilePath, "read");
+  const vaultSubPath = parsed.data.vaultSubPath ?? "/";
+
+  if (vaultSubPath !== "/") {
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            `MVP only supports vault root. Received vaultSubPath="${vaultSubPath}". ` +
+            "For pre-seeded sub-folders, use architect_files_create.",
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  if (!fs.existsSync(localFilePath)) {
+    return {
+      content: [{ type: "text", text: `File not found: ${localFilePath}` }],
+      isError: true,
+    };
+  }
+  const fileStats = fs.statSync(localFilePath);
+  if (!fileStats.isFile()) {
+    return {
+      content: [{ type: "text", text: `Path is not a file: ${localFilePath}` }],
+      isError: true,
+    };
+  }
+
+  if (countActiveTransfers() >= MAX_CONCURRENT_TRANSFERS) {
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            `Too many active transfers (max ${MAX_CONCURRENT_TRANSFERS}). ` +
+            `Use architect_transfer_status to check progress, or cancel a ` +
+            `stalled transfer via architect_transfer_cancel.`,
+        },
+      ],
+      isError: true,
+    };
+  }
+  const duplicate = findDuplicateTransfer(localFilePath, "machineVault", machineId);
+  if (duplicate) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `A transfer is already in progress for this path+target. transferId: ${duplicate.transferId}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const originalFileName = path.basename(localFilePath);
+  const fileFilesizeBytes = String(fileStats.size);
+  const vaultsUrl =
+    process.env.ROGUE_VAULTS_URL ?? process.env.ROGUE_HUB_URL ?? "https://arena.roguelabs.io";
+  const endpoint = `${vaultsUrl}/vaults/TUSUpload`;
+
+  try {
+    const handle = startTusUpload({
+      endpoint,
+      localFilePath,
+      auth,
+      tusMetadata: {
+        originalFileName,
+        vaultID: "",
+        vaultType: "scenarioBuilderMachine",
+        uniqueFilterID: machineId,
+        depVMID: "",
+        destinationType: "vault",
+        fullPathToDestinationFolder: "/",
+        fileFilesizeBytes,
+      },
+      targetKind: "machineVault",
+      targetId: machineId,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              transferId: handle.transferId,
+              fileName: handle.fileName,
+              totalBytes: handle.totalBytes,
+              message:
+                "Upload started. Use architect_transfer_status to poll progress; " +
+                "cancel via architect_transfer_cancel. On completion, the status response " +
+                "carries the final (possibly uniquified) fileName.",
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  } catch (err) {
+    return {
+      content: [{ type: "text", text: (err as Error).message }],
+      isError: true,
+    };
+  }
 }
 
 async function handleActiveDeploymentUpload(
   args: Record<string, unknown>,
   auth: AuthProvider
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
-  const depVMId = args["depVMId"] as string;
-  const localFilePath = validateLocalPath(args["localFilePath"] as string, "read");
-  const destinationPath = args["destinationPath"] as string;
-
-  if (!UUID_RE.test(depVMId ?? "")) {
-    return {
-      content: [{ type: "text", text: `Invalid UUID format for depVMId: ${depVMId}` }],
-      isError: true,
-    };
+  const parsed = parseInput(DeploymentUploadSchema, args);
+  if (!parsed.success) {
+    return { content: [{ type: "text", text: parsed.error }], isError: true };
   }
+  const { depVMId, destinationPath } = parsed.data;
+  const localFilePath = validateLocalPath(parsed.data.localFilePath, "read");
 
   if (!fs.existsSync(localFilePath)) {
     return {
@@ -598,7 +861,6 @@ async function handleActiveDeploymentUpload(
       isError: true,
     };
   }
-
   const fileStats = fs.statSync(localFilePath);
   if (!fileStats.isFile()) {
     return {
@@ -607,148 +869,98 @@ async function handleActiveDeploymentUpload(
     };
   }
 
-  // Concurrency and duplicate checks
   if (countActiveTransfers() >= MAX_CONCURRENT_TRANSFERS) {
     return {
-      content: [{ type: "text", text: `Too many active transfers (max ${MAX_CONCURRENT_TRANSFERS}). Use deployment_transfer_status to check progress or deployment_transfer_cancel to free a slot.` }],
+      content: [
+        {
+          type: "text",
+          text:
+            `Too many active transfers (max ${MAX_CONCURRENT_TRANSFERS}). ` +
+            `Use deployment_transfer_status to check progress, or cancel a ` +
+            `stalled transfer via deployment_transfer_cancel.`,
+        },
+      ],
       isError: true,
     };
   }
-  const duplicate = findDuplicateTransfer(localFilePath);
+  const duplicate = findDuplicateTransfer(localFilePath, "vm", depVMId);
   if (duplicate) {
     return {
-      content: [{ type: "text", text: `A transfer is already in progress for this path. transferId: ${duplicate.transferId}` }],
+      content: [
+        {
+          type: "text",
+          text: `A transfer is already in progress for this path+target. transferId: ${duplicate.transferId}`,
+        },
+      ],
       isError: true,
     };
   }
 
-  const originalFileName = path.basename(localFilePath);
-  // path.dirname doesn't understand Windows backslashes on macOS/Linux —
-  // strip the filename, keeping the trailing separator (vaults concatenates folder + filename directly)
-  const destinationFolder = destinationPath.replace(/[^/\\]+$/, "");
+  // If destinationPath ends with a separator it's a folder; otherwise the last segment is the filename.
+  const destIsFolder = destinationPath.endsWith("/") || destinationPath.endsWith("\\");
+  const originalFileName = destIsFolder ? path.basename(localFilePath) : path.basename(destinationPath);
+  const destinationFolder = destIsFolder ? destinationPath : destinationPath.replace(/[^/\\]+$/, "");
   const fileFilesizeBytes = String(fileStats.size);
 
   const vaultsUrl =
     process.env.ROGUE_VAULTS_URL ?? process.env.ROGUE_HUB_URL ?? "https://arena.roguelabs.io";
   const endpoint = `${vaultsUrl}/vaults/TUSUpload`;
 
-  const authHeaders = await auth.getHeaders();
-  const { "Content-Type": _ct, ...tusHeaders } = authHeaders;
-
-  // Create transfer state
-  const transferId = randomUUID();
-  const state: TransferState = {
-    transferId,
-    fileName: originalFileName,
-    direction: "upload",
-    status: "in_progress",
-    depVMId,
-    localPath: localFilePath,
-    bytesTransferred: 0,
-    totalBytes: fileStats.size,
-    startTime: new Date().toISOString(),
-  };
-  activeTransfers.set(transferId, state);
-
-  console.error(
-    `[rogue-arena-mcp] TUS upload (dep VM): ${originalFileName} (${fileStats.size} bytes) → ${endpoint} [${transferId}]`
-  );
-
-  // Throttle tracking
-  let lastChunkTime = Date.now();
-  let lastLoggedPct = -1;
-
-  const fileStream = fs.createReadStream(localFilePath);
-
-  const upload = new Upload(fileStream, {
-    endpoint,
-    chunkSize: CHUNK_SIZE,
-    uploadSize: fileStats.size,
-    headers: tusHeaders,
-    metadata: {
-      originalFileName,
-      vaultID: "",
-      depVMID: depVMId,
-      destinationType: "vm",
-      vmEntityType: "DEPLOYED_VIRTUAL_MACHINE",
-      fullPathToDestinationFolder: destinationFolder,
-      fileFilesizeBytes,
-    },
-    retryDelays: [0, 3000, 5000, 10000],
-    onBeforeRequest: (req) => {
-      if (req.getMethod() === "PATCH") {
-        const now = Date.now();
-        const elapsed = now - lastChunkTime;
-        const expectedMs = Math.floor((CHUNK_SIZE / UPLOAD_BPS) * 1000);
-        const sleepMs = expectedMs - elapsed;
-        if (sleepMs > 0) {
-          return new Promise((res) => setTimeout(res, sleepMs));
-        }
-        lastChunkTime = now;
-      }
-    },
-    onProgress: (bytesSent, bytesTotal) => {
-      state.bytesTransferred = bytesSent;
-      if (bytesTotal > 0) {
-        const pct = Math.floor((bytesSent / bytesTotal) * 100);
-        const logPct = Math.floor(pct / 10) * 10;
-        if (logPct > lastLoggedPct) {
-          lastLoggedPct = logPct;
-          console.error(
-            `[rogue-arena-mcp] Upload [${transferId}]: ${logPct}% (${bytesSent}/${bytesTotal} bytes)`
-          );
-        }
-      }
-    },
-    onSuccess: () => {
-      state.bytesTransferred = fileStats.size;
-      console.error(`[rogue-arena-mcp] Upload complete [${transferId}]: ${originalFileName}`);
-      finishTransfer(state, "completed");
-    },
-    onError: (err) => {
-      console.error(`[rogue-arena-mcp] Upload failed [${transferId}]: ${err.message}`);
-      finishTransfer(state, "failed", err.message);
-    },
-  });
-
-  state._tusUpload = upload;
-
-  // Fire and forget — do NOT await
-  upload.start();
-
-  return {
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify(
-          {
-            transferId,
-            fileName: originalFileName,
-            totalBytes: fileStats.size,
-            message: "Upload started. Use deployment_transfer_status to poll progress.",
-          },
-          null,
-          2
-        ),
+  try {
+    const handle = startTusUpload({
+      endpoint,
+      localFilePath,
+      auth,
+      tusMetadata: {
+        originalFileName,
+        vaultID: "",
+        depVMID: depVMId,
+        destinationType: "vm",
+        vmEntityType: "DEPLOYED_VIRTUAL_MACHINE",
+        fullPathToDestinationFolder: destinationFolder,
+        fileFilesizeBytes,
       },
-    ],
-  };
+      targetKind: "vm",
+      targetId: depVMId,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              transferId: handle.transferId,
+              fileName: handle.fileName,
+              totalBytes: handle.totalBytes,
+              message:
+                "Upload started. Use deployment_transfer_status to poll progress; " +
+                "cancel via deployment_transfer_cancel.",
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  } catch (err) {
+    return {
+      content: [{ type: "text", text: (err as Error).message }],
+      isError: true,
+    };
+  }
 }
 
 async function handleActiveDeploymentDownload(
   args: Record<string, unknown>,
   auth: AuthProvider
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
-  const depVMId = args["depVMId"] as string;
-  const remoteFilePath = args["remoteFilePath"] as string;
-  const localDestinationPath = validateLocalPath(args["localDestinationPath"] as string, "write");
-
-  if (!UUID_RE.test(depVMId ?? "")) {
-    return {
-      content: [{ type: "text", text: `Invalid UUID format for depVMId: ${depVMId}` }],
-      isError: true,
-    };
+  const parsed = parseInput(DeploymentDownloadSchema, args);
+  if (!parsed.success) {
+    return { content: [{ type: "text", text: parsed.error }], isError: true };
   }
+  const { depVMId, remoteFilePath } = parsed.data;
+  const localDestinationPath = validateLocalPath(parsed.data.localDestinationPath, "write");
 
   // Concurrency and duplicate checks
   if (countActiveTransfers() >= MAX_CONCURRENT_TRANSFERS) {
@@ -757,7 +969,7 @@ async function handleActiveDeploymentDownload(
       isError: true,
     };
   }
-  const duplicate = findDuplicateTransfer(localDestinationPath);
+  const duplicate = findDuplicateTransfer(localDestinationPath, "vm", depVMId);
   if (duplicate) {
     return {
       content: [{ type: "text", text: `A transfer is already in progress for this path. transferId: ${duplicate.transferId}` }],
@@ -778,7 +990,8 @@ async function handleActiveDeploymentDownload(
     fileName,
     direction: "download",
     status: "in_progress",
-    depVMId,
+    targetKind: "vm",
+    targetId: depVMId,
     localPath: localDestinationPath,
     bytesTransferred: 0,
     totalBytes: 0,
@@ -809,7 +1022,8 @@ async function handleActiveDeploymentDownload(
 
     if (!generateRes.ok) {
       const text = await generateRes.text();
-      throw new Error(`Failed to generate download link (${generateRes.status}): ${text.replace(/[^\x20-\x7E\n]/g, "").slice(0, 200)}`);
+      console.error(`[rogue-arena-mcp] Download [${transferId}]: generate link failed (${generateRes.status}): ${text.replace(/[^\x20-\x7E\n]/g, "").slice(0, 500)}`);
+      throw new Error(`Failed to generate download link (HTTP ${generateRes.status})`);
     }
 
     const generateBody = (await generateRes.json()) as { downloadID: string };
@@ -827,7 +1041,8 @@ async function handleActiveDeploymentDownload(
 
     if (!fetchRes.ok) {
       const text = await fetchRes.text();
-      throw new Error(`Failed to fetch download (${fetchRes.status}): ${text.replace(/[^\x20-\x7E\n]/g, "").slice(0, 200)}`);
+      console.error(`[rogue-arena-mcp] Download [${transferId}]: fetch failed (${fetchRes.status}): ${text.replace(/[^\x20-\x7E\n]/g, "").slice(0, 500)}`);
+      throw new Error(`Failed to fetch download (HTTP ${fetchRes.status})`);
     }
 
     if (!fetchRes.body) {
@@ -840,13 +1055,14 @@ async function handleActiveDeploymentDownload(
       state.totalBytes = parseInt(contentLength, 10) || 0;
     }
 
-    // Step 3: Stream to disk
+    // Step 3: Stream to disk via temp file — avoids clobbering existing file on failure
     const localDir = path.dirname(localDestinationPath);
     if (!fs.existsSync(localDir)) {
       fs.mkdirSync(localDir, { recursive: true });
     }
 
-    const writeStream = fs.createWriteStream(localDestinationPath);
+    const tempPath = localDestinationPath + ".partial";
+    const writeStream = fs.createWriteStream(tempPath);
     state._writeStream = writeStream;
 
     // Counting transform — updates bytesTransferred on each chunk
@@ -861,6 +1077,9 @@ async function handleActiveDeploymentDownload(
 
     await pipeline(readable, counter, writeStream);
 
+    // Atomically promote temp file to final destination
+    fs.renameSync(tempPath, localDestinationPath);
+
     console.error(
       `[rogue-arena-mcp] Download complete [${transferId}]: ${state.bytesTransferred} bytes → ${localDestinationPath}`
     );
@@ -871,25 +1090,24 @@ async function handleActiveDeploymentDownload(
       `[rogue-arena-mcp] Download ${isAbort ? "cancelled" : "failed"} [${transferId}]: ${err.message}`
     );
 
-    // Clean up write stream
+    // Clean up write stream and temp file
     if (state._writeStream) {
       state._writeStream.destroy();
     }
 
-    // Delete partial file if it exists
-    if (fs.existsSync(localDestinationPath)) {
+    const tempPath = localDestinationPath + ".partial";
+    if (fs.existsSync(tempPath)) {
       try {
-        fs.unlinkSync(localDestinationPath);
-        console.error(`[rogue-arena-mcp] Deleted partial file: ${localDestinationPath}`);
+        fs.unlinkSync(tempPath);
       } catch (unlinkErr) {
-        console.error(`[rogue-arena-mcp] Failed to delete partial file: ${unlinkErr}`);
+        console.error(`[rogue-arena-mcp] Failed to delete temp file: ${unlinkErr}`);
       }
     }
 
     finishTransfer(
       state,
       isAbort ? "cancelled" : "failed",
-      isAbort ? "Transfer cancelled" : err.message
+      isAbort ? "Transfer cancelled" : "Download failed — see server logs for details"
     );
   });
 
@@ -912,13 +1130,18 @@ async function handleActiveDeploymentDownload(
 }
 
 function handleTransferStatus(
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  allowedKind: TargetKind
 ): { content: Array<{ type: "text"; text: string }>; isError?: boolean } {
-  const transferId = args["transferId"] as string | undefined;
+  const parsed = parseInput(TransferStatusSchema, args);
+  if (!parsed.success) {
+    return { content: [{ type: "text", text: parsed.error }], isError: true };
+  }
+  const { transferId } = parsed.data;
 
   if (transferId) {
     const state = activeTransfers.get(transferId);
-    if (!state) {
+    if (!state || state.targetKind !== allowedKind) {
       return {
         content: [{ type: "text", text: JSON.stringify({ transfers: [], message: "Transfer not found." }, null, 2) }],
       };
@@ -928,7 +1151,9 @@ function handleTransferStatus(
     };
   }
 
-  const transfers = [...activeTransfers.values()].map(serializeTransfer);
+  const transfers = [...activeTransfers.values()]
+    .filter((s) => s.targetKind === allowedKind)
+    .map(serializeTransfer);
   if (transfers.length === 0) {
     return {
       content: [{ type: "text", text: JSON.stringify({ transfers: [], message: "No active or recent transfers." }, null, 2) }],
@@ -940,18 +1165,17 @@ function handleTransferStatus(
 }
 
 async function handleTransferCancel(
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  allowedKind: TargetKind
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
-  const transferId = args["transferId"] as string;
-  if (!transferId) {
-    return {
-      content: [{ type: "text", text: "transferId is required." }],
-      isError: true,
-    };
+  const parsed = parseInput(TransferCancelSchema, args);
+  if (!parsed.success) {
+    return { content: [{ type: "text", text: parsed.error }], isError: true };
   }
+  const { transferId } = parsed.data;
 
   const state = activeTransfers.get(transferId);
-  if (!state || state.status !== "in_progress") {
+  if (!state || state.status !== "in_progress" || state.targetKind !== allowedKind) {
     return {
       content: [{ type: "text", text: "Transfer not found or already completed." }],
       isError: true,
@@ -995,29 +1219,11 @@ async function handleRunScriptBg(
     };
   }
 
-  const deploymentRecordId = args["deploymentRecordId"] as string;
-  const depVMId = args["depVMId"] as string;
-  const script = args["script"] as string;
-
-  if (!deploymentRecordId || !depVMId || !script) {
-    return {
-      content: [{ type: "text", text: "deploymentRecordId, depVMId, and script are required." }],
-      isError: true,
-    };
+  const parsed = parseInput(RunScriptBgSchema, args);
+  if (!parsed.success) {
+    return { content: [{ type: "text", text: parsed.error }], isError: true };
   }
-
-  if (!UUID_RE.test(deploymentRecordId)) {
-    return {
-      content: [{ type: "text", text: `Invalid UUID format for deploymentRecordId: ${deploymentRecordId}` }],
-      isError: true,
-    };
-  }
-  if (!UUID_RE.test(depVMId)) {
-    return {
-      content: [{ type: "text", text: `Invalid UUID format for depVMId: ${depVMId}` }],
-      isError: true,
-    };
-  }
+  const { deploymentRecordId, depVMId, script, shell, timeoutSecs, maxOutputChars } = parsed.data;
 
   if (countActiveScriptRuns() >= MAX_CONCURRENT_SCRIPT_RUNS) {
     return {
@@ -1043,16 +1249,20 @@ async function handleRunScriptBg(
     depVMId,
     script,
   };
-  if (args["shell"] !== undefined) hubArgs.shell = args["shell"];
-  if (args["timeoutSecs"] !== undefined) hubArgs.timeoutSecs = args["timeoutSecs"];
-  if (args["maxOutputChars"] !== undefined) hubArgs.maxOutputChars = args["maxOutputChars"];
+  if (shell !== undefined) hubArgs.shell = shell;
+  if (timeoutSecs !== undefined) hubArgs.timeoutSecs = timeoutSecs;
+  if (maxOutputChars !== undefined) hubArgs.maxOutputChars = maxOutputChars;
 
   console.error(
     `[rogue-arena-mcp] Script run started [${scriptRunId}]: depVM=${depVMId}, script=${script.length} chars`
   );
 
-  // Fire and forget — do NOT await. Signal allows cancel to abort the HTTP request.
-  hub.executeActiveDeploymentTool("deployment_run_script", hubArgs, { signal: abortController.signal })
+  // Timeout = script timeout + 30s grace for hub overhead. Prevents a hung VM from pinning a slot forever.
+  const timeoutMs = ((timeoutSecs ?? 300) + 30) * 1000;
+  const combinedSignal = AbortSignal.any([abortController.signal, AbortSignal.timeout(timeoutMs)]);
+
+  // Fire and forget — do NOT await. Signal allows cancel or timeout to abort the HTTP request.
+  hub.executeActiveDeploymentTool("deployment_run_script", hubArgs, { signal: combinedSignal })
     .then((result) => {
       // If cancelled while in-flight, don't overwrite the cancelled status
       if (state.status !== "running") return;
@@ -1073,7 +1283,10 @@ async function handleRunScriptBg(
     })
     .catch((err: unknown) => {
       if (state.status !== "running") return;
-      const msg = err instanceof Error ? err.message : String(err);
+      const isTimeout = err instanceof Error && err.name === "TimeoutError";
+      const msg = isTimeout
+        ? `Script run timed out after ${timeoutMs / 1000}s`
+        : (err instanceof Error ? err.message : String(err));
       console.error(`[rogue-arena-mcp] Script run error [${scriptRunId}]: ${msg}`);
       finishScriptRun(state, "failed", msg);
     });
@@ -1099,7 +1312,11 @@ async function handleRunScriptBg(
 function handleScriptStatus(
   args: Record<string, unknown>
 ): { content: Array<{ type: "text"; text: string }>; isError?: boolean } {
-  const scriptRunId = args["scriptRunId"] as string | undefined;
+  const parsed = parseInput(ScriptStatusSchema, args);
+  if (!parsed.success) {
+    return { content: [{ type: "text", text: parsed.error }], isError: true };
+  }
+  const { scriptRunId } = parsed.data;
 
   if (scriptRunId) {
     const state = activeScriptRuns.get(scriptRunId);
@@ -1127,13 +1344,11 @@ function handleScriptStatus(
 function handleScriptCancel(
   args: Record<string, unknown>
 ): { content: Array<{ type: "text"; text: string }>; isError?: boolean } {
-  const scriptRunId = args["scriptRunId"] as string;
-  if (!scriptRunId) {
-    return {
-      content: [{ type: "text", text: "scriptRunId is required." }],
-      isError: true,
-    };
+  const parsed = parseInput(ScriptCancelSchema, args);
+  if (!parsed.success) {
+    return { content: [{ type: "text", text: parsed.error }], isError: true };
   }
+  const { scriptRunId } = parsed.data;
 
   const state = activeScriptRuns.get(scriptRunId);
   if (!state || state.status !== "running") {

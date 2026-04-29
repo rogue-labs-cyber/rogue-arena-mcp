@@ -1,7 +1,6 @@
 # Validation: Infrastructure — Reference Doc
 
 > **For:** architect-implementor Phase E; architect-freeform on-demand validation
-> **Source:** Migrated from skills/validate-infrastructure/SKILL.md
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 ## Purpose
@@ -219,7 +218,7 @@ Techniques match the specified difficulty level. The validator queries the catal
 
 1. **Determine validation scope** — infer from context or check the phase specification. If ambiguous, the implementor must clarify which scope to run.
 2. **Read canvas state** — `architect_canvas_get_overview` for the full picture, `architect_canvas_get_completeness` for a summary of what is missing. For pre-deployment scopes, also call `architect_canvas_get_projected_state` to preview the full draft state.
-3. **Read machine details** — `architect_vlan_get` for each VLAN to inspect machines and plugins. When reading 3+ machines, `discover_tools(search: "batch")` for batch machine reads. For exploit path scopes, `architect_exploit_path_get` to inspect hops, credentials, and journal.
+3. **Read machine details** — `architect_vlan_get` for each VLAN to inspect machines and plugins. When reading 3+ machines, `discover_tools(search: "batch")` for batch machine reads. For exploit path scopes, read `exploit.yml` from the scenario directory to inspect hops and credentials.
 4. **Collect DC user lists first** — For each domain, read the DC's `CreateUsers` param to build a complete user roster before checking workstations. This avoids redundant DC lookups when validating user references across many machines. Also note trust relationships so cross-domain user references can be resolved.
 5. **Build IP-to-machine map** — While reading machine details, build a lookup of static IP → machine. This map powers Check 14 (IP cross-referencing) without redundant queries. Note which machines lack static IPs.
 6. **Check what changed** — `discover_tools(search: "diff")` to see what changed since the last apply.
@@ -266,4 +265,4 @@ WARN:
 - Every finding carries an error code and a classification (PASS, WARN, or FAIL — see Finding Classifications above).
 - `architect_canvas_get_overview` failure blocks everything — report the failure and stop.
 - Individual machine query failures produce `WARN (UNVERIFIED)` findings for the affected checks; the audit continues with the remaining machines.
-- Exploit path scopes with no exploit path (`architect_exploit_path_get` returns empty) report `MISSING_EXPLOIT_PATH_PLAN` and stop.
+- Exploit path scopes with no `exploit.yml` in the scenario directory (or an empty `paths:` block) report `MISSING_EXPLOIT_PATH_PLAN` and stop.

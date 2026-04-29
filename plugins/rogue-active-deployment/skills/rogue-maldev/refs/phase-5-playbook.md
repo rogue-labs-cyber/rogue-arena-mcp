@@ -1,10 +1,10 @@
 # Phase 5 — Playbook Generation
 
-Write `{ROGUE_WORKSPACE}/deployments/{deployment-name}/playbook.md` — ordered shell commands mapped to real VMs from `list_vms`. Archive any prior `playbook.md` to `playbook-history/` per `refs/workspace-layout.md`.
+Write `{ROGUE_WORKSPACE}/deployments/{deployment-name}/playbook.md` — ordered shell commands mapped to real VMs from `deployment_list_vms`. Archive any prior `playbook.md` to `playbook-history/` per `refs/workspace-layout.md`.
 
 ## Required sections per technique
 
-- **Target** — hostname + IP from `list_vms`
+- **Target** — hostname + IP from `deployment_list_vms`
 - **MITRE ID + name**
 - **Source** — ART YAML URL (preferred) or prose-research URL (per `refs/art-adapter.md`)
 - **Snapshot point** — yes/no

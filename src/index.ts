@@ -11,7 +11,7 @@ import type { AuthProvider } from "./auth.js";
 import { KeycloakAuthProvider } from "./auth-keycloak.js";
 import { loadTokens } from "./keychain.js";
 import { Session } from "./session.js";
-import { META_TOOLS, handleMetaTool, isMetaTool, setDiscoverableTools, setAlwaysTools, setToolPromotion } from "./meta-tools.js";
+import { META_TOOLS, handleMetaTool, isMetaTool, setDiscoverableTools, setAlwaysTools, setToolPromotion, clearPromotedTools } from "./meta-tools.js";
 import { LOCAL_TOOLS, isLocalTool, handleLocalTool } from "./local-tools.js";
 
 // ── Screenshot helper ───────────────────────────────────────────────
@@ -149,6 +149,7 @@ const AUTH_STATUS_TOOL = {
   inputSchema: {
     type: "object" as const,
     properties: {},
+    additionalProperties: false,
   },
 };
 
@@ -650,6 +651,7 @@ async function startDegradedServer(): Promise<void> {
       }));
 
       // Rebuild listed tools in-place
+      clearPromotedTools();
       listedTools.length = 0;
       listedTools.push(AUTH_STATUS_TOOL, ...metaToolList, ...localToolList, ...alwaysTools.map(toMcpTool));
       setToolPromotion(listedTools, toMcpTool);

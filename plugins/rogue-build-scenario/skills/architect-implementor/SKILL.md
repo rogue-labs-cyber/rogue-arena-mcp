@@ -153,9 +153,33 @@ Execute in this order, following the JIT-loaded ref doc for each step:
 - Load each enrichment ref doc JIT before running that type
 - Skip disabled types entirely
 
-### B.6: Checkpoint
+### B.6: Orchestration Plugin Audit
+
+Common silent failure: the data is set up correctly but the orchestration plugin that runs at deploy time is missing. Ansible has nothing to do; the user reports "auto-login didn't fire" or "files never copied." Walk every machine touched in this build and verify the required orchestration plugins are assigned.
+
+Plugin names are not hardcoded — they evolve. Always resolve via catalog search at runtime.
+
+| Data setup that happened | Required orchestration plugin | How to resolve |
+|--------------------------|-------------------------------|----------------|
+| Primary user assigned to a workstation/desktop via `architect_machine_manage_user` and that user is expected to auto-login on boot | An auto-login plugin matching the machine's OS family (Windows, Linux, etc.) | `architect_plugin_catalog_search` with terms like `"auto login"` / `"autologin"`; filter the result list by the machine's OS. If multiple candidates match, pick the canonical one for that OS or checkpoint to user. |
+| Files uploaded to a vault destined for delivery to a machine | **File Copy** plugin on the same machine, pointing at the vault path | `architect_plugin_catalog_search` with term `"File Copy"` (this name is generic and stable). |
+| Primary user assigned to a Windows workstation/desktop via `architect_machine_manage_user` | An Office install plugin (provides Word, Excel, etc. so users can open .docx/.xlsx artifacts seeded on the machine) | `architect_plugin_catalog_search` with terms like `"Office install"` / `"Microsoft Office"`; filter to Windows. If multiple candidates match, pick the canonical one or checkpoint to user. |
+
+**Plugin `run_order` matters.** When File Copy and Auto Login are both assigned to the same machine, set File Copy's `run_order` HIGHER than Auto Login's. Auto Login creates the user profile folders (Desktop, Documents, AppData) that File Copy needs as destinations — if File Copy fires first, Ansible has nowhere to copy the files. Set this when calling `architect_assigned_plugin_set_params` for File Copy.
+
+Steps for each pattern, per machine:
+1. Read currently assigned plugins via `architect_machine_get`.
+2. If the orchestration plugin is missing, search the catalog (do NOT hardcode plugin names).
+3. Call `architect_assigned_plugin_add` with the resolved plugin and the appropriate params — user SAM + password for auto-login; vault path / destination for File Copy.
+4. Log every auto-addition to the deviations log: `"Auto-added {plugin} on {machine} for {pattern}: {detail}"`.
+
+Surface auto-additions in the B.7 checkpoint summary so the user sees what was caught.
+
+This audit is non-optional. Future patterns (scheduled tasks, service installs, domain-join orchestration, etc.) extend this table as they surface — the pattern is "data setup ✓ + orchestration plugin ✓".
+
+### B.7: Checkpoint
 - Run `architect_canvas_get_completeness`
-- Write diary entry: `diary_write` with type SCENARIO_BUILT, content summarizing machine counts, VLAN counts, deviations
+- Write diary entry: `diary_write` with type SCENARIO_BUILT, content summarizing machine counts, VLAN counts, deviations (including any orchestration plugins auto-added in B.6)
 - Present to user: "Scenario built. X machines across Y VLANs. Deviations from plan: [list]. Changes are staged as drafts — Apply Plan in the UI when ready."
 
 ## Phase C: Exploit Refinement (only if exploit.yml exists)
@@ -206,8 +230,16 @@ Following refs/phases/exploits.md Write phase:
    Bypass decisions are author intent — the implementor executes them, does not second-guess them.
 
 5. Run full path audit (8 per-hop checks, 6 dimensions, reconciliation) per ref doc
-6. Checkpoint: "Exploit paths built. X hops, Y credentials. Deviations: [list]"
-7. Write diary entry: EXPLOIT_BUILT
+6. **Exploit Trace Stamping** — After the path is built and audited, stamp `aiNotes` across every machine and VLAN involved in the path so future sessions can trace-walk the chain without re-reading `exploit.yml`. Full protocol in `refs/phases/exploits.md` "Exploit Trace Stamping" section.
+
+   For each touched machine and VLAN, read existing `aiNotes` first via `architect_machine_get` / `architect_vlan_get`. Merge under an `EXPLOIT PATH ROLE:` heading and preserve any pre-existing content (brainstorm-time notes, narrative context from per-hop machine_update calls in step 4) verbatim above or below the heading.
+
+   - **Per machine** — call `architect_machine_update` with `aiNotes`. A machine is "touched" if it appears as a hop's source, target, transit, credential drop location, or seeded artifact location. Capture, per hop the machine appears in: hop number; role (entry / pivot / credential drop / endpoint / crown jewel); SAM account(s) used or compromised; inbound (source machine + technique); outbound (next machine + technique); seeded artifacts (file paths for file_seed hops).
+   - **Per VLAN** — call `architect_vlan_update` with `aiNotes`. A VLAN is "touched" if a hop terminates inside it OR transits through it (trust crossing, firewall traversal). Capture: role (entry zone / pivot zone / trust crossing / crown jewel zone); hops traversing (e.g., "Hops 1, 3-4"); path-specific decisions made (firewall rules added, trusts exploited, zone classifications relied on).
+
+   This step is non-optional — without it, future debug, freeform, or update sessions cannot reconstruct path narrative from canvas state.
+7. Checkpoint: "Exploit paths built. X hops, Y credentials. Deviations: [list]"
+8. Write diary entry: EXPLOIT_BUILT
 
 ## Phase E: Validation (optional)
 

@@ -71,19 +71,19 @@ You are an expert Ansible developer brainstorming new plugin projects for Rogue 
 
 ## Workspace Resolution
 
-Before any filesystem operations, resolve the Rogue Arena workspace path:
+Before any filesystem operations, resolve the Rogue Labs workspace path:
 
 1. **Check CLAUDE.md** — scan for `rogue_workspace: <path>`. If found, use that path silently. Expand `~` to the user's home directory.
 2. **If not found** — ask the user:
-   > Rogue Arena skills store project files locally. Where should I create your workspace?
-   > 1. ~/RogueArena/ (recommended)
+   > Rogue Labs skills store project files locally. Where should I create your workspace?
+   > 1. ~/RogueLabsClaude/ (recommended)
    > 2. A custom path
    >
    > This will be saved to your CLAUDE.md so you won't be asked again.
 3. **Create directories** if they don't exist: `{ROGUE_WORKSPACE}/plugin-dev/projects/` and `{ROGUE_WORKSPACE}/plugin-dev/archived/`
 4. **Write to CLAUDE.md** — append `rogue_workspace: <chosen-path>` so future runs skip to step 1.
 
-Throughout this skill, `{ROGUE_WORKSPACE}` refers to the resolved path (e.g., `~/RogueArena`).
+Throughout this skill, `{ROGUE_WORKSPACE}` refers to the resolved path (e.g., `~/RogueLabsClaude`).
 
 <HARD-GATE>
 Do NOT write Ansible YAML (beyond the scaffold header) or create implementation code. Complete ALL intake questions and get user confirmation before scaffolding. If a project with the same name already exists under `projects/`, ask the user to pick a different name.
@@ -104,16 +104,18 @@ Do NOT write Ansible YAML (beyond the scaffold header) or create implementation 
 You MUST create a task for each of these items and complete them in order:
 
 1. **Read Ansible KB** — `../../reference/ansible-knowledge-base.md` — internalize before any research
-2. **Resolve workspace** — determine the Rogue Arena workspace path (see Workspace Resolution above)
+2. **Resolve workspace** — determine the Rogue Labs workspace path (see Workspace Resolution above)
 3. **Check directory** — `{ROGUE_WORKSPACE}/plugin-dev/projects/` exists, create if not
 4. **Ask intake questions** (Q1-Q4) one at a time
 5. **Research phase** — heavy web searching to figure out offline install approach
 6. **Back-and-forth** — ask follow-up questions as research reveals unknowns
 7. **Plugin breakdown** — propose single vs multi-plugin structure
-8. **Confirm full plan** with user
-9. **Scaffold** project folder and all files
-9.5. **Collect platform IDs** (optional) — ask user for plugin version IDs and canvas ID
-10. **Handoff** to `/rogue-plugin-dev:rogue-plugin-develop`
+8. **Test scenario outline** — propose a minimal canvas (domain/VLAN/machine/plugin loadout) needed to exercise these plugins; cross-check required platform plugins exist in the catalog
+9. **Confirm full plan** with user (plugins + test scenario)
+10. **Scaffold** project folder and all files
+10.5. **Collect platform IDs** (optional) — plugin version IDs (push desc/type via `plugin_dev_update_metadata`) and canvas ID
+10.6. **Build test scenario on canvas** (optional, requires canvas ID) — stage drafts via architect tools
+11. **Handoff** to `/rogue-plugin-dev:rogue-plugin-develop`
 
 ## Process Flow
 
@@ -126,8 +128,11 @@ digraph brainstorm {
     "Research phase (web search)" [shape=box];
     "Ask follow-up questions" [shape=box];
     "Propose plugin breakdown" [shape=box];
+    "Propose test scenario outline" [shape=box];
     "User confirms plan?" [shape=diamond];
     "Scaffold project files" [shape=box];
+    "Platform integration (optional)" [shape=box];
+    "Build test scenario on canvas (optional)" [shape=box];
     "Handoff to /rogue-plugin-dev:rogue-plugin-develop" [shape=doublecircle];
 
     "Read Ansible KB" -> "Resolve workspace";
@@ -136,10 +141,13 @@ digraph brainstorm {
     "Ask intake questions (Q1-Q4)" -> "Research phase (web search)";
     "Research phase (web search)" -> "Ask follow-up questions";
     "Ask follow-up questions" -> "Propose plugin breakdown";
-    "Propose plugin breakdown" -> "User confirms plan?";
+    "Propose plugin breakdown" -> "Propose test scenario outline";
+    "Propose test scenario outline" -> "User confirms plan?";
     "User confirms plan?" -> "Propose plugin breakdown" [label="no, revise"];
     "User confirms plan?" -> "Scaffold project files" [label="yes"];
-    "Scaffold project files" -> "Handoff to /rogue-plugin-dev:rogue-plugin-develop";
+    "Scaffold project files" -> "Platform integration (optional)";
+    "Platform integration (optional)" -> "Build test scenario on canvas (optional)";
+    "Build test scenario on canvas (optional)" -> "Handoff to /rogue-plugin-dev:rogue-plugin-develop";
 }
 ```
 
@@ -198,8 +206,9 @@ Based on research, propose whether this is a **single-plugin** or **multi-plugin
 For each plugin, specify:
 - **Name** (kebab-case, e.g., `wireguard-server`)
 - **Display Name** — human-readable name shown in the UI (e.g., "WireGuard Server")
-- **Description** — what the plugin does, under 800 characters. Write this for the user who will be selecting plugins in the UI — it should clearly explain what gets installed/configured and what the end result is.
+- **Description** — what the plugin does, **max 600 characters** (platform limit on `plugin_dev_update_metadata`). Write this for the user who will be selecting plugins in the UI — it should clearly explain what gets installed/configured and what the end result is.
 - **Target OS** (`linux` or `windows`)
+- **Plugin Type** — one of: `action`, `role`, `application`, `vulnerability`, `attack`, `defense`. Propose a type based on intent (see Plugin Type Selection below); user can override.
 - **What it installs/configures** (one sentence)
 - **What files need downloading** (what goes in the download script)
 - **Dependencies** on other plugins in this project (if any)
@@ -220,6 +229,77 @@ Present as a numbered list. Iterate until the user confirms.
 - Keep plugin scope focused — a plugin that does too many things is hard to debug
 - Derive parameters from the `set_fact` block and any `{{ variable }}` references in the YAML — every user-facing variable needs a parameter entry
 - For CSV parameters, the sample data should look realistic (real-looking hostnames, IPs, usernames, etc.) — not "example1", "test2"
+
+### Plugin Type Selection
+
+Propose one of these types per plugin based on what it does. The user can override.
+
+| Type | Use when the plugin… |
+|------|----------------------|
+| `application` | Installs and configures software (most common — WireGuard, BloodHound, Docker stacks, AD-joined apps, etc.) |
+| `role` | Configures an OS-level role or identity construct (promote-to-DC, set up CA, fileserver role) — not just "installs a thing" |
+| `action` | Performs a generic one-shot task that doesn't fit the others (registry tweak, scheduled task, user creation outside an app) |
+| `vulnerability` | Intentionally weakens config or introduces a CVE-style flaw (downgrades SMB, plants weak ACL, sets bad password policy) |
+| `attack` | Executes an offensive step or stages a payload (drops a beacon, runs a kerberoast, plants a malicious GPO) |
+| `defense` | Hardens config or installs defensive tooling (EDR install, audit policy, firewall rules, log forwarding) |
+
+`fileCopy` and `automatedPluginDev` exist in the platform but are not produced by this brainstorm flow — skip them.
+
+If you can't tell from the intake, default to `application` and call it out so the user can correct.
+
+---
+
+## Test Scenario Outline
+
+After the plugin breakdown is settled, propose a **minimal canvas** needed to actually exercise these plugins end-to-end. The point is a roughed-in test bed — just enough to install, run, and visually verify the plugins on a deployed environment.
+
+### What to produce
+
+A rough sketch only — no IPs, no parameter values, no user account details. For each domain (or standalone VLAN if no AD is needed):
+
+- **Domain name** (e.g., `corp.local`) — skip if standalone
+- **VLANs** — name + zone hint (corporate, dmz, isolated)
+- **Machines per VLAN** — for each:
+  - Role (DC, server, workstation, attacker)
+  - OS (Windows / Linux distro)
+  - **Platform plugins** — existing plugins from the Rogue Arena catalog (e.g., `ad-domain-controller`, `domain-join-windows`, `domain-join-linux`, `ad-cs-install`)
+  - **Project plugins** — the new plugins from this brainstorm that go on this machine
+
+Keep it small. A scenario that needs 2 boxes to test should be 2 boxes — don't pad it with realism details that belong in a full scenario brainstorm.
+
+### Catalog cross-check (required)
+
+Before presenting the outline, confirm the platform plugins you're naming actually exist:
+
+1. Call `discover_tools(category: "ROGUE_ARCHITECT_BUILDER")` if not already loaded.
+2. For each platform plugin you reference (e.g., "join domain"), call `architect_plugin_catalog_search` with relevant keywords.
+3. Use the **exact catalog plugin name** in the outline. If a search returns nothing useful after 3 tries for the same capability, flag it: *"Couldn't find a 'X' plugin in the catalog — do you have one with a different name, or should we leave that machine without it?"*
+
+This step is cheap and prevents promising plugins that don't exist on the platform.
+
+### Sketch format
+
+Present the outline like this — the user should be able to skim it and immediately see whether the test bed is the right shape:
+
+```
+Test Scenario Outline:
+
+Domain: corp.local
+  VLAN: corp-net (corporate)
+    - DC1 — Windows Server, role: DC
+        platform plugins: ad-domain-controller
+        project plugins:  ghosts-server
+    - WS1 — Windows 10, role: workstation
+        platform plugins: domain-join-windows
+        project plugins:  ghosts-client-windows
+    - WS2 — Debian, role: workstation
+        platform plugins: domain-join-linux
+        project plugins:  ghosts-client-linux
+
+(Standalone VLANs, if any, with no domain — same shape under "VLAN:" headers without a Domain wrapper.)
+```
+
+Iterate until the user confirms. Keep the outline persisted in `project.json` under `testScenario` (see Scaffold).
 
 ## Communication Discipline
 
@@ -243,7 +323,8 @@ Description: <one line>
 Plugins:
   1. <plugin-name> (linux)
      Display Name: <human-readable name>
-     Description: <under 800 chars>
+     Type: <action|role|application|vulnerability|attack|defense>
+     Description: <under 600 chars>
      Installs: <what>
      Downloads needed: <list>
      Parameters:
@@ -259,11 +340,20 @@ Plugins:
 
   2. <plugin-name> (windows)
      Display Name: <human-readable name>
-     Description: <under 800 chars>
+     Type: <action|role|application|vulnerability|attack|defense>
+     Description: <under 600 chars>
      Installs: <what>
      Downloads needed: <list>
      Depends on: <other plugin>
      Parameters: ...
+
+Test Scenario Outline:
+  Domain: <name or "(none)">
+    VLAN: <name> (<zone>)
+      - <hostname> — <OS>, role: <DC|server|workstation|attacker>
+          platform plugins: <catalog names>
+          project plugins:  <new plugin names>
+      ...
 ```
 
 Ask: **"Does this look right? Ready to scaffold?"**
@@ -294,12 +384,37 @@ Check if `{ROGUE_WORKSPACE}/plugin-dev/projects/<project-name>/` already exists.
   "description": "<one-line description from intake>",
   "created": "<YYYY-MM-DD>",
   "canvasVersionId": null,
+  "testScenario": {
+    "buildStatus": "pending",
+    "domains": [
+      {
+        "name": "corp.local",
+        "vlans": [
+          {
+            "name": "corp-net",
+            "zone": "corporate",
+            "machines": [
+              {
+                "hostname": "DC1",
+                "os": "windows",
+                "role": "DC",
+                "platformPlugins": ["ad-domain-controller"],
+                "projectPlugins": ["ghosts-server"]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "standaloneVlans": []
+  },
   "plugins": [
     {
       "name": "<plugin-name>",
       "displayName": "<Human Readable Name>",
-      "description": "<under 800 chars — what this plugin installs/configures, written for end users>",
+      "description": "<max 600 chars — what this plugin installs/configures, written for end users>",
       "targetOS": "linux",
+      "pluginType": "application",
       "status": "researching",
       "lastUpdate": "Project scaffolded from brainstorm session.",
       "pluginVersionId": null,
@@ -331,7 +446,11 @@ Check if `{ROGUE_WORKSPACE}/plugin-dev/projects/<project-name>/` already exists.
 }
 ```
 
-All fields are required. All plugins start in `researching` status. Every plugin MUST have `displayName`, `description`, and `parameters` filled in during brainstorm — these are required for publishing.
+All fields are required. All plugins start in `researching` status. Every plugin MUST have `displayName`, `description`, `pluginType`, and `parameters` filled in during brainstorm — these are required for publishing.
+
+`pluginType` must be one of: `action`, `role`, `application`, `vulnerability`, `attack`, `defense` (see Plugin Type Selection above).
+
+**`testScenario`** mirrors the outline confirmed in the Test Scenario phase. `buildStatus` starts at `"pending"` and moves to `"staged"` once drafts are pushed to a canvas, then `"applied"` after the user clicks Apply Plan. Use `standaloneVlans` (same shape as a domain's `vlans` array) for VLANs that aren't part of any domain. Omit `domains` or `standaloneVlans` entirely if not used (don't leave them as empty arrays unless that reflects intent).
 
 **Parameter types:** `string`, `number`, `boolean`, `stringBlock`, `csv`
 
@@ -408,8 +527,9 @@ Use `.sh` for Linux resource downloads, `.ps1` for Windows resource downloads.
 After writing all files, re-read `project.json` from disk and confirm:
 1. The file parses as valid JSON (no trailing commas, no syntax errors)
 2. Every plugin listed in the confirmed plan appears in the `plugins` array
-3. Every plugin has `displayName`, `description`, `parameters`, and `targetOS` populated
+3. Every plugin has `displayName`, `description`, `pluginType`, `parameters`, and `targetOS` populated
 4. Every CSV parameter has a `sampleCSV` field with headers + rows
+5. `testScenario.buildStatus` is `"pending"` and the outline matches what the user confirmed
 
 If ANY check fails, fix before proceeding to handoff.
 
@@ -421,12 +541,46 @@ After scaffolding, offer to connect the project to the Rogue Arena platform. Thi
 
 ### Collect Plugin Version IDs
 
-For each plugin in the project:
+The user only needs to create empty plugin **shells** in the UI — just enter the name. Description and type get pushed automatically via `plugin_dev_update_metadata` after the version IDs come back. This means the user types as little as possible in the UI; Claude does the rest.
 
-1. Tell the user: "Go to Rogue Arena and create a plugin called **<displayName>**. Once created, give me the plugin version ID (UUID from the URL)."
-2. When the user provides a version ID, call `discover_tools(category: "PLUGIN_DEV")` if not already done
-3. Call `plugin_dev_get_version` with the ID to validate it and retrieve the `vaultId`
-4. Save `pluginVersionId` and `vaultId` to the plugin entry in `project.json`
+Present a single preview block listing every plugin in the project so the user can confirm what's about to be pushed:
+
+```
+I'll push description + type for each of these via MCP after you give me the version IDs.
+You only need to create the plugin shells in Rogue Arena — name is enough.
+
+────────────────────────────────────────
+Plugin 1 of <N>
+Name:         <displayName>
+Type:         <pluginType>
+Target OS:    <linux|windows>
+Description:
+<full description, max 600 chars, exactly as it should appear in the UI>
+────────────────────────────────────────
+Plugin 2 of <N>
+Name:         <displayName>
+Type:         <pluginType>
+Target OS:    <linux|windows>
+Description:
+<...>
+────────────────────────────────────────
+...
+
+Look right? Go create the shells in Rogue Arena (just the names), then paste the
+version IDs back in any order. I'll set the description and type for each.
+```
+
+Then:
+
+1. Wait for the user to paste back version IDs. Accept them in any order — match each ID to its plugin by asking the user which is which only if it's ambiguous.
+2. Call `discover_tools(category: "PLUGIN_DEV")` if not already done.
+3. For each ID:
+   - Call `plugin_dev_get_version` to validate the ID and retrieve the `vaultId`.
+   - Call `plugin_dev_update_metadata` with `pluginVersionId`, `description`, and `type` to push the metadata. (Skip `name` — the user already set it in the UI.)
+   - Save `pluginVersionId` and `vaultId` to the matching plugin entry in `project.json`.
+4. Confirm to the user: "Pushed metadata for <N> plugin(s). Description and type are set on the platform — refresh the UI to see them."
+
+This whole step is optional — if the user wants to skip platform integration, move on to handoff. The develop skill's hard gate will collect the IDs later if/when sync is needed.
 
 ### Collect Canvas Version ID
 
@@ -435,6 +589,55 @@ Ask: "Do you have a canvas set up for testing these plugins? If so, give me the 
 If provided, save `canvasVersionId` to the project-level `project.json`.
 
 If the user skips this, the develop skill will ask again when debugging is needed.
+
+---
+
+## Build Test Scenario on Canvas (Optional)
+
+Triggered only when **both** are true:
+- `project.json` has a `testScenario` outline (always present after scaffold)
+- `canvasVersionId` is now set (just collected above)
+
+If the user skipped the canvas ID, skip this whole section — develop will offer to build the scenario later when a canvas ID arrives.
+
+### Ask before building
+
+> "I have a test scenario outline in `project.json` and a canvas ID. Want me to stage the domain/VLANs/machines/plugins on that canvas now? (Drafts only — you'll click Apply Plan in the UI to make them real.)"
+
+If the user says no, set `testScenario.buildStatus` to `"deferred"` and continue to handoff.
+
+### Load architect context
+
+Before mutating anything:
+
+1. **Read the architect rules** — `Read` `../../../rogue-build-scenario/refs/freeform-context.md` (sibling plugin in the same plugins root). This covers the Canvas → Domain → VLAN → Machine → Plugin order, DC-first ordering, the **`architect_plugin_catalog_list_full` BEFORE `set_params` LAW**, draft/Apply-Plan semantics, and account-type separation. **Internalize it before any mutation.** If that file isn't present (the rogue-build-scenario plugin isn't installed), tell the user and skip the build — don't try to build without those rules.
+2. **Discover architect tools** — call `discover_tools(category: "ROGUE_ARCHITECT_BUILDER")` (and `subcategory: "deploy"` only if you'll need deploy tools — not needed for staging).
+3. **Set the canvas** — `rogue_set_canvas(canvasVersionId)`.
+4. **Read current canvas state** — `architect_canvas_get_overview()` so you don't double-create entities the user already has on the canvas.
+
+### Build order
+
+Follow `freeform-context.md` rules. Staging order, top-down:
+
+1. **Domains** (if any) — `architect_forest_manage` to declare domain topology.
+2. **VLANs** — `architect_vlan_add` per VLAN, with the zone from the outline.
+3. **Machines** — `architect_machine_add` per machine. Per-VLAN order: DCs first, then servers, then workstations.
+4. **Plugins** — for each machine in the outline:
+   - Concatenate `platformPlugins` + `projectPlugins`. For project plugins, use the `pluginVersionId` from `project.json` (if Platform Integration was completed); otherwise skip them with a note that they'll be wired up later in develop.
+   - Call `architect_assigned_plugin_add` to attach each plugin. The plugin's catalog entry contains its own verbose configuration instructions — **read the catalog entry and follow those instructions** for any required params; do not invent values.
+   - For required params, follow the LAW: `architect_plugin_catalog_list_full` (with the assigned plugin's `pluginVersionId`) BEFORE `architect_assigned_plugin_set_params`. Use the discovered field names verbatim.
+
+Skip realism details that aren't in the outline (user account assignments, file seeding, exploit paths, IP details). The goal is a minimal test bed, not a polished scenario. If the user wants more, they can run `/rogue-build-scenario:architect-freeform` afterward.
+
+### Update build status
+
+After all drafts are staged:
+
+1. Set `testScenario.buildStatus` to `"staged"` in `project.json`.
+2. Tell the user:
+   > "Staged <N> machine(s) across <M> VLAN(s) as drafts on canvas <canvasVersionId>. Click Apply Plan in the UI to deploy. After it's live, run `/rogue-plugin-dev:rogue-plugin-develop` to start writing YAML."
+
+If anything fails mid-build (a catalog plugin not found, a tool error), stop, leave `buildStatus` at `"pending"`, and report what failed so the user can decide whether to retry, edit the outline, or skip.
 
 ---
 

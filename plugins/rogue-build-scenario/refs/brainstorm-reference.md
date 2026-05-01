@@ -13,9 +13,9 @@ Use box-drawing characters (`╔═╗║╚╝┌─┐│└┘▼►★↕`) 
 
 | Scenario size | Approach |
 |---------------|----------|
-| Small/Mid (≤20 machines) | Every VLAN as its own box with zone + count |
-| Large (21-40 machines) | Group VLANs by domain |
-| Enterprise+ (40+ machines) | Compact table: one row per VLAN |
+| Small/Mid (≤15 machines) | Every VLAN as its own box with zone + count |
+| Large (16-25 machines) | Group VLANs by domain |
+| Enterprise+ (25+ machines, gated) | Compact table: one row per VLAN |
 
 Fits on one screen. If the diagram would scroll, simplify.
 
@@ -158,10 +158,10 @@ Enrich thin prompts. "A medium tech company" → propose regulatory landscape, n
 | Tier | Machines | Users | Domains | Notes |
 |------|----------|-------|---------|-------|
 | Small | 3-8 | 5-25 | 1 | Quick to build |
-| Mid | 8-20 | 30-100 | 1-2 | Realistic corporate |
-| Large | 15-40 | 100-500 | 1-3 | Complex trusts |
-| Enterprise | 30-80 | 500-2000 | 2-5 | Full sim |
-| Enterprise-Jumbo | 60-150 | 2000-10000 | 3-10 | Massive multi-site |
+| Mid | 8-15 | 30-100 | 1-2 | Realistic corporate |
+| Large | 15-25 | 100-500 | 1-3 | Complex trusts; caps at standard user privilege limit |
+| Enterprise | 25-80 | 500-2000 | 2-5 | Full sim — gated (staff or info@roguelabs.io) |
+| Enterprise-Jumbo | 60-150 | 2000-10000 | 3-10 | Massive multi-site — gated (staff or info@roguelabs.io) |
 
 ### Q3 — Domains and VLANs
 

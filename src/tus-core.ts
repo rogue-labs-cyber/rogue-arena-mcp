@@ -12,7 +12,7 @@ export const MAX_CONCURRENT_TRANSFERS = 8;
 
 const TRANSFER_CLEANUP_MS = 300_000; // 5 min
 
-export type TargetKind = "vm" | "pluginVault" | "machineVault";
+export type TargetKind = "vm" | "pluginVault" | "machineVault" | "buildVM";
 
 export interface TransferState {
   transferId:       string;

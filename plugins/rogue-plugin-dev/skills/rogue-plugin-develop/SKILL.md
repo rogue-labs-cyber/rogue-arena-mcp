@@ -71,19 +71,19 @@ You are an expert Ansible developer building and iterating on Rogue Arena plugin
 
 ## Workspace Resolution
 
-Before any filesystem operations, resolve the Rogue Arena workspace path:
+Before any filesystem operations, resolve the Rogue Labs workspace path:
 
 1. **Check CLAUDE.md** — scan for `rogue_workspace: <path>`. If found, use that path silently. Expand `~` to the user's home directory.
 2. **If not found** — ask the user:
-   > Rogue Arena skills store project files locally. Where should I create your workspace?
-   > 1. ~/RogueArena/ (recommended)
+   > Rogue Labs skills store project files locally. Where should I create your workspace?
+   > 1. ~/RogueLabsClaude/ (recommended)
    > 2. A custom path
    >
    > This will be saved to your CLAUDE.md so you won't be asked again.
 3. **Create directories** if they don't exist: `{ROGUE_WORKSPACE}/plugin-dev/projects/` and `{ROGUE_WORKSPACE}/plugin-dev/archived/`
 4. **Write to CLAUDE.md** — append `rogue_workspace: <chosen-path>` so future runs skip to step 1.
 
-Throughout this skill, `{ROGUE_WORKSPACE}` refers to the resolved path (e.g., `~/RogueArena`).
+Throughout this skill, `{ROGUE_WORKSPACE}` refers to the resolved path (e.g., `~/RogueLabsClaude`).
 
 <HARD-GATE>
 Do NOT run Ansible, trigger builds, or execute commands on remote machines. The user owns all build and VM operations. After updating files, summarize what changed and wait for the user to run the build.
@@ -94,11 +94,12 @@ Do NOT run Ansible, trigger builds, or execute commands on remote machines. The 
 You MUST create a task for each of these items and complete them in order:
 
 1. **Read Ansible KB** — `../../reference/ansible-knowledge-base.md` — internalize ALL of it before writing any YAML
-2. **Resolve workspace** — determine the Rogue Arena workspace path (see Workspace Resolution above)
+2. **Resolve workspace** — determine the Rogue Labs workspace path (see Workspace Resolution above)
 3. **Scan projects** — `{ROGUE_WORKSPACE}/plugin-dev/projects/` for `project.json` files
 4. **Present project menu** (or redirect to brainstorm if no projects exist)
 5. **Read selected plugin's files** — YAML, download script, vault contents
 5.5. **Check for platform IDs** — if `pluginVersionId` exists, discover MCP tools and pull latest state from platform
+5.6. **Offer test scenario build** — if `testScenario.buildStatus === "pending"` and `canvasVersionId` is set, offer to stage the test scenario on the canvas (defer to brainstorm's Build Test Scenario on Canvas section)
 6. **Enter work loop**
 
 ## MCP Tool Integration
@@ -126,7 +127,7 @@ When `pluginVersionId` is present, MCP tools extend the local work loop:
 | Write/edit YAML | Save to `ansible_run.yml` | Also push via `plugin_dev_update_yaml` |
 | Add/change params | Update `project.json` params | Also call `plugin_dev_add_param` / `plugin_dev_update_param` / `plugin_dev_delete_param` |
 | Update name/desc/type | Update `project.json` | Also call `plugin_dev_update_metadata` |
-| Upload resources | Save to `for_plugin_vault/` | Also call `plugin_dev_upload_to_vault` to upload the file directly to the platform vault. |
+| Upload resources | Save to `for_plugin_vault/` | Upload via `plugin_dev_upload_to_vault(pluginVersionId, localFilePath)` — async TUS resumable transfer. Returns `transferId`; poll `plugin_dev_transfer_status` to track progress. Vault may uniquify filename on collision; final name in poll response. |
 | Check vault contents | `ls for_plugin_vault/` | Also call `plugin_dev_list_vault_files` |
 | Delete vault files | `rm` locally | Also call `plugin_dev_delete_vault_file` |
 
@@ -152,6 +153,16 @@ When debugging a multi-plugin project on a canvas:
 - Cross-reference both `pluginVersionId` values against deploy tool logs
 - Check dependency ordering — server plugin must succeed before client
 - If server fails, client failure is likely a cascading symptom — debug server first
+
+### Retro-build Test Scenario
+
+If `project.json` has a `testScenario` outline with `buildStatus === "pending"` and a `canvasVersionId` is now set (or just got set during this session), offer to stage the test scenario on the canvas before jumping into YAML work:
+
+> "I see a test scenario outline that hasn't been staged yet, and you have a canvas now. Want me to stage the domain/VLANs/machines/plugins on the canvas as drafts? You'll click Apply Plan to deploy."
+
+If the user says yes, follow the **Build Test Scenario on Canvas** section in the brainstorm skill — same procedure: load `../../../rogue-build-scenario/refs/freeform-context.md`, discover architect tools, stage in Canvas → Domain → VLAN → Machine → Plugin order, set `buildStatus` to `"staged"` on success.
+
+If the user says no, set `buildStatus` to `"deferred"` and continue. Don't ask again on subsequent develop sessions unless the user re-opens the topic.
 
 ## Process Flow
 
@@ -232,12 +243,13 @@ After the user picks a plugin:
 
 **Check for missing plugin metadata.** Every plugin in `project.json` MUST have these fields filled in:
 - `displayName` — human-readable name for the UI
-- `description` — under 800 characters, explains what the plugin does for end users
+- `description` — max 600 characters (platform limit), explains what the plugin does for end users
+- `pluginType` — one of: `action`, `role`, `application`, `vulnerability`, `attack`, `defense`
 - `parameters` — array of parameter objects, each with `name`, `type`, `required`, `description`; CSV-type params also need `sampleCSV`
 
 If ANY of these are missing or empty, **stop and collect them before proceeding with development work.** To generate them:
 1. Read the `ansible_run.yml` and identify all `{{ variable }}` references and `set_fact` values
-2. Propose a `displayName` and `description` for the plugin
+2. Propose a `displayName`, `description`, and `pluginType` for the plugin (default `pluginType` to `application` if intent is unclear, and call it out so the user can correct)
 3. Propose a complete parameter list with types and descriptions
 4. For any CSV parameters, generate a realistic sample CSV (headers + 4-6 rows)
 5. Present the full metadata to the user for confirmation
@@ -408,3 +420,117 @@ Common develop-phase mistakes to watch for and avoid:
 | Blind-overwriting without reading current state | Destroys work the user or a previous session added — silent data loss | Always read the file before editing. Never write from memory alone |
 | Writing playbook headers (`---`, `- hosts:`) | The build system wraps the task list in its own playbook — headers cause parse failures | Task list only. If you catch yourself writing a header, delete it immediately |
 | Not testing idempotency | A playbook that only works on a fresh VM is fragile and masks real bugs | After first successful run, always recommend a second run to verify clean re-application |
+
+---
+
+## Fetching Offline Resources via a Test VM
+
+The goal of every plugin is **fully offline install** — no `apt-get`/`wget`/`curl` reaching the public internet at deploy time. Resources must live in the plugin vault.
+
+If your plugin needs to download installers, packages, or container images that you can't get locally, drive a real VM to fetch them. The flow:
+
+### 1. Stage a canvas with internet on the relevant machine(s)
+
+If the test scenario isn't built yet, follow the brainstorm skill's "Build Test Scenario on Canvas" flow first. Then:
+
+**Ask the user** to enable internet on the machine(s) that need it:
+> "I need internet on `<machine name>` to pull <X> for the offline install. In Architect, click edit on that machine and toggle 'Enable Internet'. Then click Apply Plan to deploy."
+
+Wait for the user to confirm the canvas is deployed.
+
+### 2. Pull resources on the live VM
+
+Once deployed, use `architect_deploy_*` tools against the build VM:
+
+- `architect_deploy_exec_vm_command` / `architect_deploy_run_script` — run `apt-get download`, `wget`, `curl`, `docker pull && docker save`, `pip download`, etc.
+- `architect_deploy_dir_listing` / `architect_deploy_read_file` — verify what landed.
+- `architect_deploy_download_file` — pull the fetched artifacts back to your local workspace under `for_plugin_vault/`. Returns a `transferId`; poll `architect_deploy_transfer_status` every 10-15s.
+- `architect_deploy_upload_file` — push helper scripts or test fixtures up to the VM if you need them there mid-flow.
+
+### 3. Upload to plugin vault
+
+Once you have the artifacts locally under `for_plugin_vault/`, use `plugin_dev_upload_to_vault` (TUS resumable; same poll pattern via `plugin_dev_transfer_status`) to push each file into the plugin's vault.
+
+### 4. Verify offline path
+
+**Ask the user** to disable internet on the test machine and re-deploy (or revert the test machine to a clean snapshot). Re-run the plugin against the now-isolated VM. Confirm install completes using only vault-served resources. If apt/yum reaches out to the internet at any point, the plugin isn't done.
+
+### 5. Finalize
+
+Update `project.json` `lastUpdate` with what was vaulted. Move `status` to `done` only after the offline-only verification passes.
+
+---
+
+## Post-Build Assessment
+
+After the YAML, params, and vault are stable — but before declaring the plugin done — run this three-step assessment. Each step is a *recommendation*: propose the calls, summarize intent to the user, then proceed.
+
+### 1. Compatible Templates (always run)
+
+Call `plugin_dev_get_compatible_templates` with the current plugin version ID. Then narrow the selection based on what the plugin actually does:
+
+- Linux-only (apt/yum/systemd, bash scripts, no PowerShell) → keep only Linux templates (Ubuntu, Debian, Kali, etc.).
+- Windows-only / PowerShell → keep only Windows templates (Windows10, Windows11, Windows Server 2022, etc.).
+- OS-agnostic (rare) → leave the broad selection.
+
+Always call `plugin_dev_set_compatible_templates` with the narrowed list. Don't ship with the catch-all default.
+
+### 2. Parent Plugin Dependencies (conditional)
+
+Trigger this step when the plugin's params reference something a *different* plugin produces. Heuristics:
+
+- Plugin reads `DomainNameFQDN`, `DomainAdminPassword`, `DomainJoinUser`, etc. → likely depends on a DC-creation plugin.
+- Plugin connects to a server (Wireguard client → Wireguard server, Elastic agent → Elastic server, AD member → DC, Splunk forwarder → Splunk indexer) → likely depends on the server-side plugin.
+- Plugin requires a hostname, IP, or token that another plugin produces.
+
+Workflow:
+
+1. Use `architect_plugin_catalog_search` to find candidates by topic/keyword (e.g., "domain controller", "wireguard").
+2. Use `plugin_dev_get_version` on each candidate to discover its params.
+3. Identify the param on the parent that produces the value the child consumes.
+4. Call `plugin_dev_create_parent_plugin` with `childMatchParamName` and `parentMatchParamName` set to the matching pair. The backend will auto-link runtime instances when their values match.
+5. If no clear parent exists, skip — don't fabricate one.
+
+### 3. Automation Rules (conditional, narrow scope)
+
+Trigger this step **only** when one of these holds:
+
+- **Heavyweight resource plugin** — Elastic, Splunk, Kibana, large databases, Kubernetes, etc. — set `Machine.ramGB` and/or `Machine.cpuCores` literals via `plugin_dev_create_automation`.
+- **Plugin produces a domain/hostname/IP** that the VLAN should know about — stamp `VLAN.staticHostMappings` or `VLAN.dnsForwardingTargets` from the param value.
+- **Plugin defines the VLAN's identity** (e.g., a DC plugin naming the AD forest) — stamp `VLAN.nickname` from the FQDN param.
+
+Default behavior: **no automations**. Most plugins do not need any.
+
+When you do create one, use the full `AutoUpdateAction` shape:
+
+```json
+{
+  "targetEntity": "MACHINE",
+  "targetField": "ramGB",
+  "valueMapping": { "value": 10 },
+  "triggers": ["onApply"]
+}
+```
+
+Or for a param-driven mapping:
+
+```json
+{
+  "targetEntity": "VLAN",
+  "targetField": "nickname",
+  "valueMapping": { "value": "${DomainNameFQDN}" },
+  "triggers": ["onApply"]
+}
+```
+
+### Post-Build Assessment Tools
+
+| Tool | When to use |
+|------|-------------|
+| `plugin_dev_get_compatible_templates` | Before narrowing OS template selection — returns available + currently selected |
+| `plugin_dev_set_compatible_templates` | Bulk-replace the compatible templates list |
+| `architect_plugin_catalog_search` | Discover candidate parent plugins by keyword/topic |
+| `plugin_dev_create_parent_plugin` | Declare this plugin is a child of another plugin (with optional match-param) |
+| `plugin_dev_delete_parent_plugin` | Remove a parent-plugin link |
+| `plugin_dev_create_automation` | Add an automation rule that stamps VLAN/Machine fields when the plugin runs |
+| `plugin_dev_delete_automation` | Remove an automation rule (re-read array first via plugin_dev_get_version) |

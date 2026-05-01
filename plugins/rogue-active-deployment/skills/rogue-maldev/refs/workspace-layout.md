@@ -4,7 +4,7 @@ Canonical directory structure for the skill. Create directories on demand — do
 
 ## Root
 
-Workspace root resolved via `refs/phase-1-gates.md` (`rogue_workspace` from CLAUDE.md, default `~/RogueArena/`).
+Workspace root resolved via `refs/phase-1-gates.md` (`rogue_workspace` from CLAUDE.md, default `~/RogueLabsClaude/`).
 
 ## Per-deployment tree
 

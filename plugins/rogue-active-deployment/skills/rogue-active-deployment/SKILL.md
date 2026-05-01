@@ -82,14 +82,14 @@ Complete these steps BEFORE any other action. No exceptions — not for "quick c
 
 ## Workspace Resolution (Future Use)
 
-This plugin currently operates via MCP tools with no local filesystem usage. However, it participates in the unified Rogue Arena workspace convention for future use.
+This plugin currently operates via MCP tools with no local filesystem usage. However, it participates in the unified Rogue Labs workspace convention for future use.
 
 On startup, if the skill needs to write any local files:
 
 1. **Check CLAUDE.md** — scan for `rogue_workspace: <path>`. If found, use that path.
 2. **If not found** — ask the user:
    > Rogue Arena skills store project files locally. Where should I create your workspace?
-   > 1. ~/RogueArena/ (recommended)
+   > 1. ~/RogueLabsClaude/ (recommended)
    > 2. A custom path
 3. **Create** `{ROGUE_WORKSPACE}/deployments/` if it doesn't exist.
 4. **Write to CLAUDE.md** — append `rogue_workspace: <chosen-path>`.

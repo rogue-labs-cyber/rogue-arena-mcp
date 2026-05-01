@@ -183,6 +183,22 @@ const DeploymentDownloadSchema = z
   })
   .strict();
 
+const ArchitectDeployUploadSchema = z
+  .object({
+    depVMBuildTemplateId: z.string().uuid(),
+    localFilePath: z.string().min(1),
+    destinationPath: z.string().min(1),
+  })
+  .strict();
+
+const ArchitectDeployDownloadSchema = z
+  .object({
+    depVMBuildTemplateId: z.string().uuid(),
+    remoteFilePath: z.string().min(1),
+    localDestinationPath: z.string().min(1),
+  })
+  .strict();
+
 const TransferStatusSchema = z
   .object({
     transferId: z.string().uuid().optional(),
@@ -327,7 +343,7 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
         destinationPath: {
           type: "string",
           minLength: 1,
-          description: "Full destination path on the VM (e.g. /home/user/file.txt)",
+          description: "Full destination path on the VM. Forward slashes work on all platforms (e.g. /home/user/file.txt or C:/Users/Admin/file.exe). Backslashes are also accepted for Windows paths.",
         },
       },
       required: ["depVMId", "localFilePath", "destinationPath"],
@@ -349,7 +365,7 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
         remoteFilePath: {
           type: "string",
           minLength: 1,
-          description: "Full path to the file on the VM (e.g. /home/user/file.txt)",
+          description: "Full path to the file on the VM. For Linux VMs use forward slashes (e.g. /home/user/file.txt). For Windows VMs use backslashes (e.g. C:\\\\Users\\\\Admin\\\\file.exe) — the download path resolver normalizes Windows paths to backslashes and uses strict equality, so forward slashes will 404.",
         },
         localDestinationPath: {
           type: "string",
@@ -573,6 +589,94 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "architect_deploy_upload_file",
+    description:
+      "Upload a local file to a DepVMBuildTemplate VM during the architect/build phase using TUS resumable upload. Supports large files (multi-GB). Starts the transfer in the background and returns immediately with a transferId. Use architect_deploy_transfer_status to poll progress every 10-15 seconds. Mirrors deployment_upload_file but targets the per-machine build template instead of an active deployment VM.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        depVMBuildTemplateId: {
+          type: "string",
+          format: "uuid",
+          description: "UUID of the DepVMBuildTemplate (provisioning VM) to upload to. Get this from architect_deploy_get_machine_details.",
+        },
+        localFilePath: {
+          type: "string",
+          minLength: 1,
+          description: "Absolute path to the file on the local machine",
+        },
+        destinationPath: {
+          type: "string",
+          minLength: 1,
+          description: "Full destination path on the VM. Forward slashes work on all platforms (e.g. /home/user/file.txt or C:/Users/Admin/file.exe). Backslashes are also accepted for Windows paths. Trailing slash treats path as folder; otherwise the last segment is the filename.",
+        },
+      },
+      required: ["depVMBuildTemplateId", "localFilePath", "destinationPath"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "architect_deploy_download_file",
+    description:
+      "Download a file from a DepVMBuildTemplate VM during the architect/build phase to the local machine. Starts the transfer in the background and returns immediately with a transferId. The file transfer continues in the background. Use architect_deploy_transfer_status to poll progress every 10-15 seconds. Mirrors deployment_download_file but targets the per-machine build template instead of an active deployment VM.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        depVMBuildTemplateId: {
+          type: "string",
+          format: "uuid",
+          description: "UUID of the DepVMBuildTemplate (provisioning VM) to download from. Get this from architect_deploy_get_machine_details.",
+        },
+        remoteFilePath: {
+          type: "string",
+          minLength: 1,
+          description: "Full path to the file on the VM. For Linux VMs use forward slashes (e.g. /home/user/file.txt). For Windows VMs use backslashes (e.g. C:\\\\Users\\\\Admin\\\\file.exe) — the download path resolver normalizes Windows paths to backslashes and uses strict equality, so forward slashes will 404.",
+        },
+        localDestinationPath: {
+          type: "string",
+          minLength: 1,
+          description: "Absolute local path where the file should be saved",
+        },
+      },
+      required: ["depVMBuildTemplateId", "remoteFilePath", "localDestinationPath"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "architect_deploy_transfer_status",
+    description:
+      "Check progress of architect_deploy_upload_file and architect_deploy_download_file transfers. Returns all active and recently completed build-VM transfers with progress details. Poll every 10-15 seconds for active transfers.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        transferId: {
+          type: "string",
+          format: "uuid",
+          description: "Optional: UUID of a specific transfer to check. Omit to see all transfers.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "architect_deploy_transfer_cancel",
+    description:
+      "Cancel an in-progress architect_deploy_upload_file or architect_deploy_download_file by transferId.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        transferId: {
+          type: "string",
+          format: "uuid",
+          description: "UUID of the transfer to cancel (from architect_deploy_upload_file or architect_deploy_download_file response).",
+        },
+      },
+      required: ["transferId"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 export function isLocalTool(name: string): boolean {
@@ -594,18 +698,26 @@ export async function handleLocalTool(
       return handleActiveDeploymentUpload(args, auth);
     case "deployment_download_file":
       return handleActiveDeploymentDownload(args, auth);
+    case "architect_deploy_upload_file":
+      return handleArchitectDeployUpload(args, auth);
+    case "architect_deploy_download_file":
+      return handleArchitectDeployDownload(args, auth);
     case "deployment_transfer_status":
       return handleTransferStatus(args, "vm");
     case "plugin_dev_transfer_status":
       return handleTransferStatus(args, "pluginVault");
     case "architect_transfer_status":
       return handleTransferStatus(args, "machineVault");
+    case "architect_deploy_transfer_status":
+      return handleTransferStatus(args, "buildVM");
     case "deployment_transfer_cancel":
       return handleTransferCancel(args, "vm");
     case "plugin_dev_transfer_cancel":
       return handleTransferCancel(args, "pluginVault");
     case "architect_transfer_cancel":
       return handleTransferCancel(args, "machineVault");
+    case "architect_deploy_transfer_cancel":
+      return handleTransferCancel(args, "buildVM");
     case "deployment_run_script_bg":
       return handleRunScriptBg(args, hub);
     case "deployment_script_status":
@@ -898,7 +1010,7 @@ async function handleActiveDeploymentUpload(
 
   // If destinationPath ends with a separator it's a folder; otherwise the last segment is the filename.
   const destIsFolder = destinationPath.endsWith("/") || destinationPath.endsWith("\\");
-  const originalFileName = destIsFolder ? path.basename(localFilePath) : path.basename(destinationPath);
+  const originalFileName = destIsFolder ? path.basename(localFilePath) : destinationPath.split(/[/\\]/).pop()!;
   const destinationFolder = destIsFolder ? destinationPath : destinationPath.replace(/[^/\\]+$/, "");
   const fileFilesizeBytes = String(fileStats.size);
 
@@ -951,6 +1063,291 @@ async function handleActiveDeploymentUpload(
   }
 }
 
+async function handleArchitectDeployUpload(
+  args: Record<string, unknown>,
+  auth: AuthProvider
+): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
+  const parsed = parseInput(ArchitectDeployUploadSchema, args);
+  if (!parsed.success) {
+    return { content: [{ type: "text", text: parsed.error }], isError: true };
+  }
+  const { depVMBuildTemplateId, destinationPath } = parsed.data;
+  const localFilePath = validateLocalPath(parsed.data.localFilePath, "read");
+
+  if (!fs.existsSync(localFilePath)) {
+    return {
+      content: [{ type: "text", text: `File not found: ${localFilePath}` }],
+      isError: true,
+    };
+  }
+  const fileStats = fs.statSync(localFilePath);
+  if (!fileStats.isFile()) {
+    return {
+      content: [{ type: "text", text: `Path is not a file: ${localFilePath}` }],
+      isError: true,
+    };
+  }
+
+  if (countActiveTransfers() >= MAX_CONCURRENT_TRANSFERS) {
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            `Too many active transfers (max ${MAX_CONCURRENT_TRANSFERS}). ` +
+            `Use architect_deploy_transfer_status to check progress, or cancel a ` +
+            `stalled transfer via architect_deploy_transfer_cancel.`,
+        },
+      ],
+      isError: true,
+    };
+  }
+  const duplicate = findDuplicateTransfer(localFilePath, "buildVM", depVMBuildTemplateId);
+  if (duplicate) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `A transfer is already in progress for this path+target. transferId: ${duplicate.transferId}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  // If destinationPath ends with a separator it's a folder; otherwise the last segment is the filename.
+  const destIsFolder = destinationPath.endsWith("/") || destinationPath.endsWith("\\");
+  const originalFileName = destIsFolder ? path.basename(localFilePath) : destinationPath.split(/[/\\]/).pop()!;
+  const destinationFolder = destIsFolder ? destinationPath : destinationPath.replace(/[^/\\]+$/, "");
+  const fileFilesizeBytes = String(fileStats.size);
+
+  const vaultsUrl =
+    process.env.ROGUE_VAULTS_URL ?? process.env.ROGUE_HUB_URL ?? "https://arena.roguelabs.io";
+  const endpoint = `${vaultsUrl}/vaults/TUSUpload`;
+
+  try {
+    const handle = startTusUpload({
+      endpoint,
+      localFilePath,
+      auth,
+      tusMetadata: {
+        originalFileName,
+        vaultID: "",
+        depVMID: depVMBuildTemplateId,
+        destinationType: "vm",
+        vmEntityType: "DEP_VM_BUILD_TEMPLATE",
+        fullPathToDestinationFolder: destinationFolder,
+        fileFilesizeBytes,
+      },
+      targetKind: "buildVM",
+      targetId: depVMBuildTemplateId,
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              transferId: handle.transferId,
+              fileName: handle.fileName,
+              totalBytes: handle.totalBytes,
+              message:
+                "Upload started. Use architect_deploy_transfer_status to poll progress; " +
+                "cancel via architect_deploy_transfer_cancel.",
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  } catch (err) {
+    return {
+      content: [{ type: "text", text: (err as Error).message }],
+      isError: true,
+    };
+  }
+}
+
+async function handleArchitectDeployDownload(
+  args: Record<string, unknown>,
+  auth: AuthProvider
+): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
+  const parsed = parseInput(ArchitectDeployDownloadSchema, args);
+  if (!parsed.success) {
+    return { content: [{ type: "text", text: parsed.error }], isError: true };
+  }
+  const { depVMBuildTemplateId, remoteFilePath } = parsed.data;
+  const localDestinationPath = validateLocalPath(parsed.data.localDestinationPath, "write");
+
+  // Concurrency and duplicate checks
+  if (countActiveTransfers() >= MAX_CONCURRENT_TRANSFERS) {
+    return {
+      content: [{ type: "text", text: `Too many active transfers (max ${MAX_CONCURRENT_TRANSFERS}). Use architect_deploy_transfer_status to check progress or architect_deploy_transfer_cancel to free a slot.` }],
+      isError: true,
+    };
+  }
+  const duplicate = findDuplicateTransfer(localDestinationPath, "buildVM", depVMBuildTemplateId);
+  if (duplicate) {
+    return {
+      content: [{ type: "text", text: `A transfer is already in progress for this path. transferId: ${duplicate.transferId}` }],
+      isError: true,
+    };
+  }
+
+  const vaultsUrl =
+    process.env.ROGUE_VAULTS_URL ?? process.env.ROGUE_HUB_URL ?? "https://arena.roguelabs.io";
+  const authHeaders = await auth.getHeaders();
+  const fileName = remoteFilePath.split(/[/\\]/).pop()!;
+
+  // Create transfer state
+  const transferId = randomUUID();
+  const abortController = new AbortController();
+  const state: TransferState = {
+    transferId,
+    fileName,
+    direction: "download",
+    status: "in_progress",
+    targetKind: "buildVM",
+    targetId: depVMBuildTemplateId,
+    localPath: localDestinationPath,
+    bytesTransferred: 0,
+    totalBytes: 0,
+    startTime: new Date().toISOString(),
+    _abortController: abortController,
+  };
+  activeTransfers.set(transferId, state);
+
+  console.error(
+    `[rogue-arena-mcp] Download [${transferId}]: buildVM=${depVMBuildTemplateId} remote=${remoteFilePath} → ${localDestinationPath}`
+  );
+
+  // Fire-and-forget async IIFE with top-level catch
+  (async () => {
+    // Step 1: Generate download link
+    const generateRes = await fetch(`${vaultsUrl}/vaults/generateDownloadLink`, {
+      method: "POST",
+      headers: authHeaders,
+      signal: abortController.signal,
+      body: JSON.stringify({
+        sourceType: "vm",
+        depVMIDOrVaultID: depVMBuildTemplateId,
+        fullPathToFile: remoteFilePath,
+        fileSizeBytes: 0,
+        vmEntityType: "DEP_VM_BUILD_TEMPLATE",
+      }),
+    });
+
+    if (!generateRes.ok) {
+      const text = await generateRes.text();
+      console.error(`[rogue-arena-mcp] Download [${transferId}]: generate link failed (${generateRes.status}): ${text.replace(/[^\x20-\x7E\n]/g, "").slice(0, 500)}`);
+      throw new Error(`Failed to generate download link (HTTP ${generateRes.status})`);
+    }
+
+    const generateBody = (await generateRes.json()) as { downloadID: string };
+    const downloadID = generateBody.downloadID;
+
+    console.error(`[rogue-arena-mcp] Download [${transferId}]: link generated, downloadID=${downloadID}`);
+
+    // Step 2: Fetch the download
+    const fetchRes = await fetch(`${vaultsUrl}/vaults/fetchDownload`, {
+      method: "POST",
+      headers: authHeaders,
+      signal: abortController.signal,
+      body: JSON.stringify({ downloadID }),
+    });
+
+    if (!fetchRes.ok) {
+      const text = await fetchRes.text();
+      console.error(`[rogue-arena-mcp] Download [${transferId}]: fetch failed (${fetchRes.status}): ${text.replace(/[^\x20-\x7E\n]/g, "").slice(0, 500)}`);
+      throw new Error(`Failed to fetch download (HTTP ${fetchRes.status})`);
+    }
+
+    if (!fetchRes.body) {
+      throw new Error("Empty response body from download endpoint");
+    }
+
+    // Read Content-Length if available
+    const contentLength = fetchRes.headers.get("content-length");
+    if (contentLength) {
+      state.totalBytes = parseInt(contentLength, 10) || 0;
+    }
+
+    // Step 3: Stream to disk via temp file — avoids clobbering existing file on failure
+    const localDir = path.dirname(localDestinationPath);
+    if (!fs.existsSync(localDir)) {
+      fs.mkdirSync(localDir, { recursive: true });
+    }
+
+    const tempPath = localDestinationPath + ".partial";
+    const writeStream = fs.createWriteStream(tempPath);
+    state._writeStream = writeStream;
+
+    // Counting transform — updates bytesTransferred on each chunk
+    const counter = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        state.bytesTransferred += chunk.length;
+        callback(null, chunk);
+      },
+    });
+
+    const readable = Readable.fromWeb(fetchRes.body as import("node:stream/web").ReadableStream);
+
+    await pipeline(readable, counter, writeStream);
+
+    // Atomically promote temp file to final destination
+    fs.renameSync(tempPath, localDestinationPath);
+
+    console.error(
+      `[rogue-arena-mcp] Download complete [${transferId}]: ${state.bytesTransferred} bytes → ${localDestinationPath}`
+    );
+    finishTransfer(state, "completed");
+  })().catch((err: Error) => {
+    const isAbort = err.name === "AbortError";
+    console.error(
+      `[rogue-arena-mcp] Download ${isAbort ? "cancelled" : "failed"} [${transferId}]: ${err.message}`
+    );
+
+    // Clean up write stream and temp file
+    if (state._writeStream) {
+      state._writeStream.destroy();
+    }
+
+    const tempPath = localDestinationPath + ".partial";
+    if (fs.existsSync(tempPath)) {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch (unlinkErr) {
+        console.error(`[rogue-arena-mcp] Failed to delete temp file: ${unlinkErr}`);
+      }
+    }
+
+    finishTransfer(
+      state,
+      isAbort ? "cancelled" : "failed",
+      isAbort ? "Transfer cancelled" : "Download failed — see server logs for details"
+    );
+  });
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(
+          {
+            transferId,
+            fileName,
+            message: "Download started. Use architect_deploy_transfer_status to poll progress.",
+          },
+          null,
+          2
+        ),
+      },
+    ],
+  };
+}
+
 async function handleActiveDeploymentDownload(
   args: Record<string, unknown>,
   auth: AuthProvider
@@ -980,7 +1377,7 @@ async function handleActiveDeploymentDownload(
   const vaultsUrl =
     process.env.ROGUE_VAULTS_URL ?? process.env.ROGUE_HUB_URL ?? "https://arena.roguelabs.io";
   const authHeaders = await auth.getHeaders();
-  const fileName = path.basename(remoteFilePath);
+  const fileName = remoteFilePath.split(/[/\\]/).pop()!;
 
   // Create transfer state
   const transferId = randomUUID();

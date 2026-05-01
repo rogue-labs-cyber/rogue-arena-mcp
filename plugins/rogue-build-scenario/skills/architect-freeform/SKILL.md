@@ -115,6 +115,30 @@ Freeform is for single-entity or few-entity changes:
 
 If the user requests large-scale redesign (changing company identity, adding domains, reorganizing VLANs), suggest: "That sounds like a bigger change — want to use the scenario brainstorm to redesign it properly? `/rogue-build-scenario:architect-brainstorm`"
 
+## Exploit-Path Auto-Stamp
+
+Whenever a freeform action adds, modifies, or removes an exploit-relevant element — a vuln plugin assignment, a credential file seed, a firewall rule that affects hop reachability, a trust modification, a SAM account that's part of a hop — re-stamp `aiNotes` on the affected machines and VLANs so future sessions can trace-walk the chain.
+
+Read existing `aiNotes` via `architect_machine_get` / `architect_vlan_get` before stamping. Merge under an `EXPLOIT PATH ROLE:` heading and preserve content under other headings verbatim. Use the same per-machine and per-VLAN format as architect-implementor Phase D step 6 — full protocol in `refs/phases/exploits.md` "Exploit Trace Stamping" section.
+
+Skip auto-stamping for non-exploit changes (cosmetic plugin swaps that don't affect a hop, machine notes the user is editing directly, etc.).
+
+## Orchestration Plugin Auto-Couple
+
+Whenever a freeform action sets up data that needs a deploy-time orchestration plugin to actually fire, couple the orchestration plugin in the same flow. Same pattern as architect-implementor Phase B.6 — without the orchestration plugin, Ansible has nothing to do at deploy time.
+
+Plugin names are not hardcoded — search the catalog at runtime via `architect_plugin_catalog_search`.
+
+| Action | Required orchestration plugin |
+|--------|-------------------------------|
+| Assigning a primary user to a workstation/desktop via `architect_machine_manage_user` (and the user is expected to auto-login on boot) | An auto-login plugin matching the machine's OS family — search `"auto login"` / `"autologin"` and filter by OS |
+| Uploading files to a vault destined for delivery to a machine | **File Copy** plugin on the same machine, pointing at the vault path |
+| Assigning a primary user to a Windows workstation/desktop | An Office install plugin (provides Word, Excel, etc.) — search `"Office install"` / `"Microsoft Office"` and filter to Windows |
+
+If multiple candidate plugins match the catalog search, ask the user which one. Surface every auto-coupling to the user inline so they see what was added.
+
+**Plugin `run_order` matters.** When File Copy and Auto Login are both assigned to the same machine, set File Copy's `run_order` HIGHER than Auto Login's. Auto Login creates the user profile folders (Desktop, Documents, AppData) that File Copy needs as destinations — if File Copy fires first, Ansible has nowhere to copy the files.
+
 ## Validation on Demand
 
 When user asks "validate my canvas", "is this ready to deploy?", "run an audit":

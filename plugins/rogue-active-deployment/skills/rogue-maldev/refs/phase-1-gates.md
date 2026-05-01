@@ -15,10 +15,10 @@ Complete before any other action. No exceptions.
 
 ## Workspace Resolution
 
-Follows the unified Rogue Arena convention:
+Follows the unified Rogue Labs convention:
 
 1. Check CLAUDE.md for `rogue_workspace: <path>`. Use it if found.
-2. If missing, ask: "Where should I store technique files? ~/RogueArena/ (recommended) or custom path?"
+2. If missing, ask: "Where should I store technique files? ~/RogueLabsClaude/ (recommended) or custom path?"
 3. Create `{ROGUE_WORKSPACE}/deployments/{deployment-name}/techniques/` if it doesn't exist.
 4. Write `rogue_workspace: <path>` to CLAUDE.md if it wasn't there.
 

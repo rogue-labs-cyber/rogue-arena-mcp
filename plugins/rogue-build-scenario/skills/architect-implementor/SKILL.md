@@ -2,6 +2,7 @@
 name: architect-implementor
 description: "Execute a scenario blueprint — expands scenario.yml + exploit.yml into implementation.yml, builds infrastructure via MCP tools. Triggers: 'implement my scenario', 'build from YML'. Dispatched by architect-validator after validation passes."
 disable-model-invocation: true
+user-invocable: false
 ---
 
 <!-- ROGUE-ORACLE-PERSONA-START -->
@@ -87,7 +88,6 @@ Load phase ref docs JUST-IN-TIME, not all at once:
 - Before Phase B machines step → load `refs/phases/machines.md`
 - Before each enrichment type → load relevant enrichment ref doc
 - Before Phases C-D → load `refs/phases/exploits.md`
-- Before Phase E → load validation ref docs
 - `refs/shared-rules.md` is referenced throughout (load once)
 
 ## Phase A: Expansion
@@ -178,7 +178,7 @@ Surface auto-additions in the B.7 checkpoint summary so the user sees what was c
 This audit is non-optional. Future patterns (scheduled tasks, service installs, domain-join orchestration, etc.) extend this table as they surface — the pattern is "data setup ✓ + orchestration plugin ✓".
 
 ### B.7: Checkpoint
-- Run `architect_canvas_get_completeness`
+- Run `architect_canvas_get_overview` to confirm machine and VLAN counts match the plan and to spot empty-plugin entities
 - Write diary entry: `diary_write` with type SCENARIO_BUILT, content summarizing machine counts, VLAN counts, deviations (including any orchestration plugins auto-added in B.6)
 - Present to user: "Scenario built. X machines across Y VLANs. Deviations from plan: [list]. Changes are staged as drafts — Apply Plan in the UI when ready."
 
@@ -241,16 +241,13 @@ Following refs/phases/exploits.md Write phase:
 7. Checkpoint: "Exploit paths built. X hops, Y credentials. Deviations: [list]"
 8. Write diary entry: EXPLOIT_BUILT
 
-## Phase E: Validation (optional)
+## Handoff to Final Validation
 
-After all build phases complete:
-- Ask: "Want me to run a full technical audit before you deploy?"
-- If yes:
-  - Load refs/phases/validate-infrastructure.md — run 12 infrastructure checks
-  - Load refs/phases/validate-realism.md — run 7-category realism assessment
-  - Use `architect_canvas_get_projected_state` for pre-deployment verification
-  - Present findings with PASS/WARN/FAIL classifications
-  - Write diary entry: VALIDATION_COMPLETE
+After all build phases complete (Phase B for scenario-only runs, or B + C + D when an exploit path is in play), the implementor's job is done. Tell the user:
+
+> "Build staged as drafts. Run `/architect-final-validate` for a full pre-deploy audit (plugin params, run order, completeness, exploit path trace, realism grade) before Apply Plan."
+
+Do not run validation inline. The `architect-final-validate` skill is read-only and self-contained — invoking it is the user's call.
 
 ## Exploit-Only Mode
 
@@ -258,7 +255,7 @@ When invoked with only exploit.yml (no scenario.yml):
 - Phase A runs reduced expansion: reads live canvas via MCP instead of scenario.yml
 - Phase B is skipped entirely
 - Phases C-D run as normal
-- Phase E optional as normal
+- Same handoff to `architect-final-validate` at the end
 
 ## Error Handling
 
@@ -289,7 +286,6 @@ Write diary entries at each phase boundary for session persistence and resume:
 | After Phase B | `SCENARIO_BUILT` — machine counts, VLAN counts, deviations, completeness state |
 | After Phase C | `EXPLOIT_REFINED` — resolved hops, unresolved gaps |
 | After Phase D | `EXPLOIT_BUILT` — hop count, credential count, validation results |
-| After Phase E | `VALIDATION_COMPLETE` — infrastructure score, realism score, findings |
 
 ## Resume Protocol
 

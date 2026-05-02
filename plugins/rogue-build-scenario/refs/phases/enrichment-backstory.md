@@ -38,5 +38,5 @@ See [shared-rules.md -- Backstory Event Categories](../shared-rules.md#backstory
 
 ## Constraints
 
-- The implementor runs completeness verification (`architect_canvas_get_completeness`) after this phase completes.
+- The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
 - For 5+ machines or 10+ users, the implementor must confirm scope before generating — see [shared-rules.md -- Large Generation Confirmation Gate](../shared-rules.md#large-generation-confirmation-gate).

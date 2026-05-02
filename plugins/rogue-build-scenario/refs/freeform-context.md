@@ -157,7 +157,7 @@ Every workstation manifest includes 1-2 email artifacts (OST, PST, or saved .eml
 
 - **Add a Windows DC:** `architect_machine_add` (role: domain_controller, OS: WindowsServer2022) -> `architect_assigned_plugin_add` (ad-domain-controller) -> `architect_plugin_catalog_list_full` -> `architect_assigned_plugin_set_params` (CreateUsers CSV, CreateOUs CSV, CreateGroups CSV)
 - **Wire two VLANs:** `architect_vlan_manage_connection` with trust level, firewall rules, and default policy. AD-trusting pairs need rules for ports 88, 389, 636, 445, 53, 3268, 3269.
-- **Check what's missing:** `architect_canvas_get_completeness` returns per-machine percentages and specific gaps. Below 100% means something is missing.
+- **Check what's missing:** `architect_canvas_get_overview` returns the full canvas state — empty plugin slots, machines without roles, and VLANs without machines all surface here.
 - **Swap a plugin:** `architect_assigned_plugin_delete` the old one, then `architect_assigned_plugin_add` the new one. Re-discover params via catalog before configuring.
 - **Add machine notes:** `architect_machine_update` with `aiNotes` field containing freeform text describing the machine's role in the learning flow or notable configuration details.
 - **Search for anything:** `architect_canvas_global_search` searches across all entity types — users, machines, plugins, params. Use field hints like `["username", "displayname"]` to narrow results.
@@ -167,4 +167,4 @@ Every workstation manifest includes 1-2 email artifacts (OST, PST, or saved .eml
 - **Design an exploit path:** inventory techniques via `architect_exploit_technique_list` -> check VLAN connection rules via `architect_vlan_get` (zone + firewall rules show whether a path exists) -> commit hops to `exploit.yml` after user confirms plan. Canvas materializes from the YAML at apply time.
 - **Resume an exploit path:** read `exploit.yml` from the scenario directory for planning context -> read canvas state via `architect_canvas_get_overview` to see what has been materialized -> resume based on state.
 - **Check AD data:** DC plugin params hold the source of truth — use `architect_assigned_plugin_get_param` for CreateUsers/CreateOUs/CreateGroups, or `architect_canvas_global_search` with field hints.
-- **Validate infrastructure:** Read-only audit via `architect_canvas_get_overview`, `architect_canvas_get_completeness`, and per-machine `architect_machine_get`. Never mutates canvas state.
+- **Validate infrastructure:** Read-only audit via `architect_canvas_get_overview` and per-machine `architect_machine_get`. Hand off to `architect-final-validate` for the full pre-deploy audit. Never mutates canvas state.

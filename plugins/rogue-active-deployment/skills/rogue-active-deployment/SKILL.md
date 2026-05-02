@@ -96,7 +96,7 @@ On startup, if the skill needs to write any local files:
 
 ## Critical Safety Rule
 
-**Always use `deployment_exec_command` for all VM interaction.**
+**Always use `deployment_run_script` for all VM interaction.**
 
 Then, to be absolutely clear: **NEVER use the Bash tool to run commands intended for VMs.** The Bash tool executes on the HOST machine — the user's laptop — not the lab VM. Running `rm -rf /`, `ipconfig`, or any payload via Bash hits the host, not the target. This is the single most important rule in this entire skill.
 
@@ -104,7 +104,7 @@ Then, to be absolutely clear: **NEVER use the Bash tool to run commands intended
 
 | Thought | Reality |
 |---------|---------|
-| "I'll just run this command via Bash, it's faster." | NEVER. Bash hits the host machine. All VM commands go through `deployment_exec_command`. No exceptions. |
+| "I'll just run this command via Bash, it's faster." | NEVER. Bash hits the host machine. All VM commands go through `deployment_run_script`. No exceptions. |
 | "I'll snapshot before each command to be safe." | Snapshots are expensive async operations. One before a testing cycle starts, revert when done. Not per-action. |
 | "The user said it's Windows, so I'll use PowerShell syntax." | Check `operatingSystem` from `deployment_list_vms`. Don't assume — the user may be wrong, or the VM may differ from expectation. |
 | "I'll show the user all the credentials so they have them." | Don't dump credentials unprompted. Use them when needed for auth commands (runas, su, ssh). |
@@ -121,8 +121,8 @@ After the hard gates, classify the user's request. **Announce your classificatio
 | Classification | Evidence | Action |
 |---|---|---|
 | **Investigate** | "What's running?", "show me the VMs" | Already done in hard gate 3 — present the VM list |
-| **Run command** | "Execute this", "run nmap", "check the logs" | `deployment_exec_command` with OS-correct syntax |
-| **Testing loop** | "Test this payload", "try this exploit" | Snapshot → exec → observe → revert → iterate |
+| **Run command** | "Execute this", "run nmap", "check the logs" | `deployment_run_script` with OS-correct syntax (single-liner or multi-line script) |
+| **Testing loop** | "Test this payload", "try this exploit" | Snapshot → run_script → observe → revert → iterate |
 | **Maldev / detection testing** | "Test my tool against detections", "maldev loop", "research TTPs", "build a playbook", "maldev quickstart", "test techniques" | Offer: "Want me to run the maldev loop — snapshot, execute, SIEM query, revert, iterate? I can research TTPs and build a playbook first if you need, or jump straight to testing your tool." If yes, invoke `rogue-active-deployment:rogue-maldev` |
 | **Browse filesystem** | "What's on this machine?", "find the flag" | `deployment_dir_listing` with OS-appropriate root |
 | **Read file contents** | "Show me that config", "grab the log" | `deployment_read_file` — use mode head/tail/range. For binary files use `deployment_download_file` |
@@ -130,7 +130,7 @@ After the hard gates, classify the user's request. **Announce your classificatio
 | **List processes** | "What's running on this box?", "check for AV" | `deployment_process_list` — optionally filter by name |
 | **Log findings** | "Found creds", "got a foothold", "note this" | `deployment_diary_write` with appropriate entryType (credential, foothold, loot, etc.) |
 | **Review progress** | "What have we found?", "show engagement notes" | `deployment_diary_read` — optionally filter by entryType |
-| **Debug** | "Why isn't this working?", "it's not connecting" | `deployment_list_vms` for status → `deployment_exec_command` for diagnostics → iterate |
+| **Debug** | "Why isn't this working?", "it's not connecting" | `deployment_list_vms` for status → `deployment_run_script` for diagnostics → iterate |
 
 ## OS-Aware Commands
 
@@ -139,11 +139,11 @@ Always check `operatingSystem` from `deployment_list_vms` before picking syntax:
 | Action | Windows | Linux |
 |---|---|---|
 | List files | `dir C:\Users` or `deployment_dir_listing` | `ls /home` or `deployment_dir_listing` |
-| Read file | `deployment_read_file` (preferred) or `type` via exec | `deployment_read_file` (preferred) or `cat` via exec |
-| Search file | `deployment_grep_file` (preferred) or `findstr` via exec | `deployment_grep_file` (preferred) or `grep` via exec |
+| Read file | `deployment_read_file` (preferred) or `type` via run_script | `deployment_read_file` (preferred) or `cat` via run_script |
+| Search file | `deployment_grep_file` (preferred) or `findstr` via run_script | `deployment_grep_file` (preferred) or `grep` via run_script |
 | Network info | `ipconfig /all` | `ip addr` |
 | Current user | `whoami /priv` | `whoami` |
-| Running processes | `deployment_process_list` (preferred) or `tasklist` via exec | `deployment_process_list` (preferred) or `ps aux` via exec |
+| Running processes | `deployment_process_list` (preferred) or `tasklist` via run_script | `deployment_process_list` (preferred) or `ps aux` via run_script |
 | Filesystem root | `C:\` | `/` |
 
 ## Snapshot Discipline
@@ -161,7 +161,7 @@ Some deployments are locked (read-only mode). When locked:
 
 | Works | Blocked |
 |---|---|
-| `deployment_list_vms` | `deployment_exec_command` |
+| `deployment_list_vms` | `deployment_run_script` |
 | `deployment_dir_listing` | `deployment_create_snapshot` |
 | `deployment_read_file` | `deployment_revert_snapshot` |
 | `deployment_grep_file` | |
@@ -189,9 +189,9 @@ Three personas use this skill. All get the same minimal guardrails — these are
 - This skill is fully independent from `rogue-build-scenario`. Different VM classes, different tools, no overlap.
 - Use `deployment_diary_write` to log credentials, loot, and engagement progress. Use `deployment_diary_read` at the START of every session to review prior findings. These are NOT the same as canvas `diary_read`/`diary_write` (those are for scenario building).
 - Warn before destructive commands (`rm -rf`, `format`, `del /s`) and before snapshot reverts.
-- Prefer `deployment_read_file` over `deployment_exec_command` + `cat`/`type` for reading files. Prefer `deployment_grep_file` over `deployment_exec_command` + `grep`/`findstr` for searching. Prefer `deployment_process_list` over `deployment_exec_command` + `ps`/`tasklist` for process listing. The dedicated tools are faster and return structured data.
+- Prefer `deployment_read_file` over `deployment_run_script` + `cat`/`type` for reading files. Prefer `deployment_grep_file` over `deployment_run_script` + `grep`/`findstr` for searching. Prefer `deployment_process_list` over `deployment_run_script` + `ps`/`tasklist` for process listing. The dedicated tools are faster and return structured data.
 - Use `deployment_dir_listing` to confirm remote file paths before reading file contents.
 
 ---
 
-**Remember: `deployment_exec_command` for VMs. NEVER Bash. Bash hits the host machine.**
+**Remember: `deployment_run_script` for VMs. NEVER Bash. Bash hits the host machine.**

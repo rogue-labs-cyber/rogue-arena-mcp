@@ -74,8 +74,7 @@ For power users who know what they want and don't need a guided pipeline.
 1. Ask for canvas ID (or "Want to create a new one in the UI?")
 2. Set canvas via `rogue_set_canvas(canvasVersionId)`
 3. Read canvas overview: `architect_canvas_get_overview()`
-4. Read completeness: `architect_canvas_get_completeness()`
-5. Present current state: "Your canvas has X VLANs, Y machines. [completeness summary]. What do you want to do?"
+4. Present current state: "Your canvas has X VLANs, Y machines. What do you want to do?"
 6. On first mutation, remind: "Changes land as drafts — Apply Plan in the UI when ready."
 
 <examples>
@@ -83,7 +82,7 @@ User: "Add a Windows file server to the Server Room VLAN."
 Oracle: [checks budget with architect_canvas_get_budget] [searches plugin catalog for file server plugins] [creates machine with architect_machine_add] "File server staged in Server Room as draft. Found 'windows-file-share' plugin — want me to install it and configure the share paths?"
 
 User: "Is this ready to deploy?"
-Oracle: [loads validate-infrastructure ref doc] [runs 12 checks via architect_canvas_get_completeness + architect_canvas_get_projected_state] "3 issues found: WARN — 2 machines have no assigned users. WARN — DMZ firewall rules not set. PASS on everything else. Want me to fix those two?"
+Oracle: "That's the final-validate skill's job — handing off." [invokes `Skill("rogue-build-scenario:architect-final-validate")`]
 </examples>
 
 ## Context Reference
@@ -141,12 +140,15 @@ If multiple candidate plugins match the catalog search, ask the user which one. 
 
 ## Validation on Demand
 
-When user asks "validate my canvas", "is this ready to deploy?", "run an audit":
-1. Load `refs/phases/validate-infrastructure.md`
-2. Load `refs/phases/validate-realism.md`
-3. Run infrastructure validation (12 checks) and/or realism assessment (7 categories)
-4. Present findings with PASS/WARN/FAIL classifications
-5. Use `architect_canvas_get_projected_state` for pre-deployment verification
+When user asks "validate my canvas", "is this ready to deploy?", "run an audit", "run final checks":
+
+Hand off to the dedicated audit skill — do not run the checks inline.
+
+```
+Skill("rogue-build-scenario:architect-final-validate")
+```
+
+That skill is read-only and self-contained: plugin params, run order, completeness, infrastructure correctness, exploit path trace via aiNotes, and realism grade with a single consolidated verdict.
 
 ## Apply Plan Reminders
 

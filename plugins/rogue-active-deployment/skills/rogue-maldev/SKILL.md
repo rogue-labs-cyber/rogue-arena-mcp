@@ -60,7 +60,7 @@ Each phase has a dedicated ref. Read the ref at the start of the phase.
 ## Principles
 
 - **Operator role** — facilitate what the user brings; the user picks TTPs and tools.
-- **VM commands run through `deployment_exec_command`.** Bash runs on the host, not the lab VM. For payloads that run longer than 20s, use `deployment_run_script_bg` + `deployment_bg_output`.
+- **VM commands run through `deployment_run_script`.** Bash runs on the host, not the lab VM. For payloads that run longer than 20s, use `deployment_run_script_bg` + `deployment_bg_output`.
 - **Correlate SIEM hits by `test_id` marker first.** Every technique embeds a unique marker per `refs/siem-query-patterns.md`.
 - **On empty SIEM results, widen — don't narrow.** Full ladder in `refs/siem-query-patterns.md`.
 - **Benign-payload substitution applies only to technique-scoped detections.** Payload-scoped detections (AMSI, ETW, shellcode, reflective DLL) require the real payload. Rule in `refs/phase-6-payload.md`.

@@ -450,13 +450,16 @@ Sentiment distribution across events: 40% routine / 40% positive / 20% negative.
 
 | Service | Ports |
 |---|---|
-| AD / Kerberos | 88, 389, 636, 3268, 3269 |
+| AD / Kerberos (auth only) | 88, 389, 636, 3268, 3269 |
+| AD / Domain trust replication (full surface) | 53, 88, 135, 137-139, 389, 445, 464, 636, 3268, 3269, 49152-65535 |
 | DNS | 53 (tcp/udp) |
 | SMB | 445 |
 | RDP | 3389 |
 | SSH | 22 |
 | Web | 80, 443 |
 | Database | 1433 (SQL Server), 3306 (MySQL), 5432 (PostgreSQL) |
+
+**AD trust note:** Between any two trusted VLANs (same domain, parent/child, external, forest), use `defaultPolicy: allow_all` with no rules. Don't enumerate ports — threading 445 / NetBIOS / Kerberos / LDAP individually buys nothing pedagogically and silently breaks replication when the dynamic RPC range (`49152-65535`) is omitted. The full DC-to-DC port list above is documented only for the rare segmented-trust scenario where the lesson is specifically about a misconfigured trust. See [enrichment-network.md § When to use `allow_all` vs. enumerated rules](phases/enrichment-network.md#when-to-use-allow_all-vs-enumerated-rules) for the canonical guidance.
 
 ## AD Structure Conventions
 

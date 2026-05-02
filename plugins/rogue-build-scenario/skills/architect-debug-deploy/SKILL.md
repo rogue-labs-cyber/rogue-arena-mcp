@@ -93,7 +93,7 @@ Key investigation tools (priority order):
 1. `architect_deploy_log_query_raw` — search deployment logs
 2. `architect_deploy_get_ansible_code` — read the generated Ansible for a machine
 3. `architect_deploy_get_machine_details` — machine config and plugin state
-4. `architect_deploy_exec_vm_command` — run diagnostic commands on the VM
+4. `architect_deploy_run_script` — run diagnostic commands or scripts on the VM
 
 ### Silent PowerShell Failures
 The #1 deployment failure mode. When a plugin's PowerShell script exits silently (no error, no output, but the expected state wasn't created), follow the Check-Do-Use anti-pattern detection from the ref doc.

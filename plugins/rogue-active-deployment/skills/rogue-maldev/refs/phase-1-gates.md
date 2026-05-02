@@ -33,9 +33,22 @@ After listing VMs, identify roles by scanning hostnames and OS types:
 | Elastic/SIEM | elastic, siem, kibana, fleet |
 | Domain Controller | dc, domain, ad |
 | Target workstations | ws, wks, desktop, pc |
+| Attacker workstation | WindowsAttack, attacker, kali, redteam |
 | Linux hosts | Check `operatingSystem` field |
 
 Present role guesses. Let the user confirm or correct. "No SIEM" is valid — the no-SIEM fallback applies throughout.
+
+### Attacker-VM tooling probe
+
+If a `WindowsAttack` (or similarly-named attacker) VM is present, check for pre-installed tooling that can shortcut payload work. Visual Studio in particular is sometimes available — useful for compiling C/C++ loaders, droppers, or shellcode runners on-box without uploading binaries.
+
+Probe the Start Menu directory:
+
+```
+dir "C:\ProgramData\Microsoft\Windows\Start Menu\Programs" /b
+```
+
+If `Visual Studio 2022` (or similar) is present, surface it to the user before Phase 6 payload selection — it changes the tool inventory.
 
 If a SIEM box exists, probe it for available Elastic indices. Check OS first: Linux uses `curl -s --max-time 20`, Windows uses `Invoke-RestMethod`. Which index patterns matter and how to query them lives in `refs/siem-query-patterns.md` — read that when observation comes up.
 

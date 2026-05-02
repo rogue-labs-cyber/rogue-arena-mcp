@@ -51,6 +51,6 @@ For 3+ machines, spawn haiku subagents in parallel (one per machine) — each ma
 
 ## Constraints
 
-- The implementor runs completeness verification (`architect_canvas_get_completeness`) after this phase completes.
+- The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
 - For 5+ machines, the implementor must confirm scope before generating — see [shared-rules.md -- Large Generation Confirmation Gate](../shared-rules.md#large-generation-confirmation-gate).
 - Vulnerable files (credentials, SSH keys, breadcrumbs) with `isVulnerabilityFile: true` are placed by the exploits phase, not here.

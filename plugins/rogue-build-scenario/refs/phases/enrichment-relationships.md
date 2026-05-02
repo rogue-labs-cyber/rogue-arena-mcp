@@ -61,5 +61,5 @@ Every `operation: 'generate'` call includes a prompt of 100+ characters covering
 
 ## Constraints
 
-- The implementor runs completeness verification (`architect_canvas_get_completeness`) after this phase completes.
+- The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
 - For 10+ users, the implementor must confirm scope before generating — see [shared-rules.md -- Large Generation Confirmation Gate](../shared-rules.md#large-generation-confirmation-gate).

@@ -239,7 +239,7 @@ Execution sequence:
 8. For each VLAN: generate bpData (purpose, zone) -> `architect_vlan_add`. Use subagents for 3+ VLANs.
 9. `architect_vlan_list` -- read back created VLANs to get `vlanNodeIds`
 10. Plan machine manifests per VLAN. Verify DC-first, plugin provenance, budget match.
-11. The implementor runs completeness verification (`architect_canvas_get_completeness`) after this phase completes.
+11. The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
 
 ## ADD_VLAN Workflow (Existing Canvas)
 
@@ -272,7 +272,7 @@ Execution sequence:
 - Every VLAN gets at least 1 plugin and at least 1 machine.
 - Company context must exist before generating forest events (`architect_canvas_get_context`).
 - Subagent instructions include the path to `shared-rules.md` for size limits and naming conventions.
-- The implementor runs completeness verification (`architect_canvas_get_completeness`) after this phase completes.
+- The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
 - Flag unrealistic budgets (e.g., 3 AD-enabled VLANs with a budget of 4) before generating.
 - Only assign plugins that serve a real role on the VLAN -- skip force-fits.
 

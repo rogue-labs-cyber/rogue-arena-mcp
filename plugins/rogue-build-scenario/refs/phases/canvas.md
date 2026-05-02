@@ -126,7 +126,7 @@ Once the user confirms the brief, transition directly into generation:
 
 **GATE 4: Inspect before storing.** After Haiku returns JSON, spot-check before calling `architect_canvas_set_context`: leadership includes CEO + security leader, no content policy violations. Re-dispatch with corrections if any check fails.
 
-The implementor runs completeness verification (`architect_canvas_get_completeness`) after this phase completes.
+The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
 
 ### Haiku Subagent Dispatch
 
@@ -157,13 +157,13 @@ When modifying an existing canvas:
 2. Identify what needs changing.
 3. Dispatch Haiku with current state + modification request (preserve unchanged sections).
 4. Store via `architect_canvas_set_context` (replaces entire BP).
-5. Trust the set_context success response. Post-routing verification (overview + completeness) is handled by the root orchestrator.
+5. Trust the set_context success response. Post-routing verification (overview) is handled by the root orchestrator.
 
 If the modification is downstream (VLAN or machine changes), skip this phase — the appropriate downstream phase handles it.
 
 ### Error Handling
 
-If `architect_canvas_set_context` returns validation errors: read the Zod error messages, fix the specific fields, and re-dispatch or fix directly if the error is simple. If `architect_canvas_get_completeness` shows missing sections after a successful call, re-run with full bpData to overwrite.
+If `architect_canvas_set_context` returns validation errors: read the Zod error messages, fix the specific fields, and re-dispatch or fix directly if the error is simple. If `architect_canvas_get_overview` shows missing context sections after a successful call, re-run with full bpData to overwrite.
 
 ---
 
@@ -190,6 +190,6 @@ Canvas produces the *decision* of which naming conventions the company uses (pic
 - Haiku generates bpData; the canvas phase passes it through to the `bpData` field on `architect_canvas_set_context`.
 - The `prompt` field is optional metadata for the audit trail.
 - `architect_canvas_set_context` auto-stores `company_context` and `user_profiles` for downstream consumers — no extra storage calls needed.
-- The implementor runs completeness verification (`architect_canvas_get_completeness`) after this phase completes.
+- The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
 - Every company uses modern enterprise IT infrastructure (Active Directory, contemporary databases, standard networking) regardless of fictional setting. Department names and themes can be fictional; IT infrastructure stays modern.
 - If a machine or VM limit is specified, reflect that limit exactly in `totalMachines` and capture the constraint verbatim.

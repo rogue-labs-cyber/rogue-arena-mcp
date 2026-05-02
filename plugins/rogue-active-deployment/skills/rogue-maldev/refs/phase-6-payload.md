@@ -8,7 +8,7 @@ Ask: "What payload are you bringing to this engagement?"
 - Identify staging VM
 - Upload via `deployment_upload_file`. Record the destination path.
 - If the user's payload is a C2 implant: "You'll need your teamserver listening. Once it's up, I can verify connectivity from target VMs to your listener."
-- Network reachability checks via `deployment_exec_command` (ping/curl the listener from targets)
+- Network reachability checks via `deployment_run_script` (ping/curl the listener from targets)
 - If the playbook lists required tools (Rubeus.exe, impacket, mimikatz, etc.) that aren't already on-disk, upload them too. Probe with `where`/`which` before uploading.
 
 ## Path B — Quick test mode (benign payload substitution)

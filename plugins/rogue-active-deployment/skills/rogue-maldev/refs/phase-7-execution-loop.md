@@ -20,7 +20,7 @@ For each technique in the playbook:
 - **Announce** the technique and target.
 - **Snapshot** at marked points; poll to completion.
 - **Upload** with `test_id` embedded in the artifact name — `loader_RM-20260420-a7f3.exe`, `procdump_RM-....exe`. Troubleshoot upload failures before proceeding: verify path with `deployment_dir_listing`, check disk space, confirm write permissions.
-- **Execute** OS-aware via `deployment_exec_command`. Payloads longer than ~20s use `deployment_run_script_bg` + `deployment_bg_output` + `deployment_script_status` — the synchronous tool times out at 30s.
+- **Execute** OS-aware via `deployment_run_script`. Payloads longer than ~20s use `deployment_run_script_bg` + `deployment_bg_output` + `deployment_script_status` — the synchronous tool times out at 30s.
 - **Verify** that the technique landed: exit code + artifact check. On failure, follow the classification branch below before retrying.
 - **Observe** the SIEM per `refs/siem-query-patterns.md`: `test_id` filter first, 15-min window, broaden-on-empty ladder. Quote rule names / severities as evidence.
 - **Record** the result to `runs/{ts}/per-technique/{MITRE-ID}.json` per `refs/report-artifact.md`, and write a diary entry via `deployment_diary_write`.

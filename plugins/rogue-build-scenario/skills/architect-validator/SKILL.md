@@ -2,6 +2,7 @@
 name: architect-validator
 description: "Validate a Rogue Arena scenario against mechanical invariants + cross-phase consistency checks after Phase 4. Invoked automatically by architect-brainstorm on Phase 4 completion, or standalone via Skill tool with a scenario directory path. Triggers: 'validate scenario', 'check exploit path', 'run validator'."
 disable-model-invocation: true
+user-invocable: false
 ---
 
 # Architect Validator

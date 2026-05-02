@@ -442,7 +442,7 @@ Wait for the user to confirm the canvas is deployed.
 
 Once deployed, use `architect_deploy_*` tools against the build VM:
 
-- `architect_deploy_exec_vm_command` / `architect_deploy_run_script` — run `apt-get download`, `wget`, `curl`, `docker pull && docker save`, `pip download`, etc.
+- `architect_deploy_run_script` — run `apt-get download`, `wget`, `curl`, `docker pull && docker save`, `pip download`, etc.
 - `architect_deploy_dir_listing` / `architect_deploy_read_file` — verify what landed.
 - `architect_deploy_download_file` — pull the fetched artifacts back to your local workspace under `for_plugin_vault/`. Returns a `transferId`; poll `architect_deploy_transfer_status` every 10-15s.
 - `architect_deploy_upload_file` — push helper scripts or test fixtures up to the VM if you need them there mid-flow.

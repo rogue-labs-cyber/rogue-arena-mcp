@@ -1,11 +1,11 @@
 # Validation: Realism — Reference Doc
 
-> **For:** architect-implementor Phase E; architect-freeform on-demand validation
+> **For:** architect-final-validate skill — realism scope of the final audit
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 ## Purpose
 
-Evaluate whether the environment looks believable for its stated purpose. Read-only — no mutations. Technical correctness (credentials, plugin params, reachability) belongs to validate-infrastructure; this validation doc asks "does a medium-sized law firm actually look like a law firm?"
+Evaluate whether the environment looks believable for its stated purpose. Read-only — no mutations. Technical correctness (credentials, plugin params, reachability) belongs to `infrastructure-checks.md`; this validation doc asks "does a medium-sized law firm actually look like a law firm?"
 
 ## The Proportionality Principle
 
@@ -21,13 +21,30 @@ When in doubt, ask: "Would a real company of this size and type have this?"
 ## Seven Finding Categories
 
 ### 1. user_population
-User count vs stated company size. See [shared-rules.md § Company Size Limits](../../refs/shared-rules.md#company-size-limits) for the authoritative per-tier user and machine ranges. Flag if DC has 5 users but scenario says "medium company."
+User count vs stated company size. See [shared-rules.md § Company Size Limits](../../../refs/shared-rules.md#company-size-limits) for the authoritative per-tier user and machine ranges. Flag if DC has 5 users but scenario says "medium company."
 
 ### 2. file_services
 File share completeness and organization. Real file servers have multiple shares: Shared (company-wide), department folders (HR, Finance, Engineering), user home directories, IT/Admin tools share, possibly Archives, Projects, Templates. Flag if file server has only 1-2 shares.
 
+**Per-user document seeding (logged-in workstations).** A real user's machine has documents — work artifacts, role-aligned drafts, hobby-related items, scattered notes. Empty desktops are obviously synthetic. For each machine where a user is `isActivelyLoggedIn: true`:
+
+1. Call `architect_files_get_seeding_context([machineId])` once to pull the user's `filingHabits`, `workStyle`, `hobbies`, and `workplaceEvents.potentialFiles` hints.
+2. Call `architect_machine_list_files([machineId])` and count files seeded under user-relevant paths (e.g., `C:\Users\{sam}\Desktop`, `Documents`, `Downloads`).
+3. Score against threshold (default 20 user-relevant docs):
+
+   | File count | Severity |
+   |---|---|
+   | 0–5 | **HIGH** |
+   | 6–15 | **MEDIUM** |
+   | 16–19 | **LOW** |
+   | 20+ | no finding |
+
+When flagging, surface the seeding-context hints inline so the user knows *what* would fit — e.g., *"User `jdoe` has 4 seeded files. Hobbies: cycling, photography. Recent workplaceEvent suggests draft expense reports. Add ~16 more user-relevant docs (cycling route GPX, photo metadata, expense draft .xlsx, role-aligned project notes)."*
+
+This sub-check applies only to logged-in user machines. Servers, DCs, and machines without active user assignments are exempt.
+
 ### 3. industry_infrastructure
-Industry-specific systems and applications. See [shared-rules.md § Industry-Specific Infrastructure](../../refs/shared-rules.md#industry-specific-infrastructure) for the expected systems per industry. Flag if "Healthcare company" has no clinical systems.
+Industry-specific systems and applications. See [shared-rules.md § Industry-Specific Infrastructure](../../../refs/shared-rules.md#industry-specific-infrastructure) for the expected systems per industry. Flag if "Healthcare company" has no clinical systems.
 
 ### 4. ad_structure
 OU layout, groups, service accounts. OUs reflect real departments (not just "Users" and "Computers"). Group structure has role-based groups (not just "Domain Users"). Service accounts for each major application. Nested groups for delegated permissions. Flag if all users are in a single OU with no security groups defined.
@@ -74,7 +91,7 @@ The validator gives honest scores, not nice ones — score inflation is the sing
 
 ## Score Justification
 
-Before assigning a score, the validator must:
+Before assigning a score:
 
 1. **Count findings by severity** — state the exact count: "X CRITICAL, Y HIGH, Z MEDIUM, W LOW"
 2. **Apply ceiling rules** — state which ceiling applies and why
@@ -93,38 +110,15 @@ If the "why not one lower" justification is missing, the score is one lower.
 | 3-4 | Weak — major gaps in expected infrastructure or population |
 | 1-2 | Poor — fundamental mismatch between goal and what was built |
 
-## Validation Checklist
+## Reading the Canvas (efficient prep)
 
-1. **Read full canvas state** — `architect_canvas_get_overview` for VLANs, machines, domains. Check `resourceBudget` from overview and note budget utilization.
-2. **Read company context** — `architect_canvas_get_context` for intended industry, size, and culture.
-3. **Read forest events** — `architect_forest_get_events` for narrative and AD topology.
-4. **Read VLAN details** — `architect_vlan_list`, then `architect_vlan_get` for each VLAN to inspect AD blueprints, user archetypes, security groups.
-5. **Read machine details** — `architect_machine_get` on every domain controller and every file server. When reading 3+ machines, `discover_tools(search: "batch")` for batch reads. Count actual users from DC createusers parameters from tool output, not estimates.
-6. **Check vulnerability distribution** — `discover_tools(search: "vulnerability state")` to audit attack surface proportionality.
-7. **Evaluate all 7 categories** — user_population, file_services, industry_infrastructure, ad_structure, network_services, security_infrastructure, general_realism. A category left unevaluated drops the score ceiling to 6.
-8. **Present findings** — structured format with severity, category, description, evidence, and suggestion for each finding. Include score justification.
+Before scoring, prep the data the categories need:
 
-## Result Format
+1. `architect_canvas_get_overview` for VLANs, machines, domains, and `resourceBudget`.
+2. `architect_canvas_get_context` for intended industry, size, and culture (drives the Proportionality Principle).
+3. `architect_forest_get_events` for narrative + AD topology.
+4. `architect_vlan_list` then `architect_vlan_get` per VLAN to inspect AD blueprints, user archetypes, and security groups.
+5. `architect_machine_get` on every DC and every file server (use `discover_tools(search: "batch")` for 3+ machines). Count actual users from `CreateUsers` rather than estimating.
+6. `discover_tools(search: "vulnerability state")` to audit attack-surface proportionality.
 
-```json
-{
-  "realismScore": 5,
-  "findings": [
-    {
-      "severity": "HIGH",
-      "category": "industry_infrastructure",
-      "description": "Healthcare company missing EMR/EHR system",
-      "evidence": "architect_canvas_get_overview shows 4 servers. No machine has clinical application plugins. Company context states 'regional healthcare provider'.",
-      "suggestion": "Add a clinical application server with EHR software"
-    }
-  ],
-  "overallAssessment": "Findings: 0 CRITICAL, 1 HIGH, 1 MEDIUM, 1 LOW. Ceiling: 7 (1 HIGH finding). Score 5 — not 4 because user population (85 users) and file shares (6 shares on FS01) are proportional. Would reach 6 with clinical application server added, 7 with print services."
-}
-```
-
-## Constraints
-
-- **Read-only.** Tool calls are limited to `architect_*_get_*`, `architect_*_list_*`, `architect_canvas_get_completeness`, `architect_canvas_get_context`, `architect_forest_get_events`, and catalog read tools. No mutations.
-- Use draft nodeIds (e.g., `vlan-corp`, `machine-corp-dc01`) — canvas UUIDs fail.
-- Every finding carries severity + category + evidence.
-- `architect_canvas_get_overview` failure blocks everything — report the failure and stop.
+Every one of the 7 categories must be evaluated. A category left unevaluated drops the score ceiling to 6 (per Score Ceiling Rules above). The orchestrator (SKILL.md) owns the consolidated report and verdict — this ref's job is the score, the findings, and the justification.

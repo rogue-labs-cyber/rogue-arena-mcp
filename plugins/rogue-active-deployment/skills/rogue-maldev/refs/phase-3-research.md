@@ -36,7 +36,7 @@ Each technique rendered as:
 | **Source** | ART / MITRE / Sigma / blog URL — cite the source used |
 | **Detection rule IDs** | Concrete rule IDs: Elastic `<uuid>`, Sigma `<filename.yml>`, Sysmon `EventID:N`. If none found, mark "unverified." |
 | **Complexity** | Simple / Moderate / Advanced |
-| **Shell-executable** | Yes / Partial / No — can it run entirely via `deployment_exec_command`? |
+| **Shell-executable** | Yes / Partial / No — can it run entirely via `deployment_run_script`? |
 
 Flag non-shell-executable techniques: "This one needs manual execution or a C2 — I'll include reference docs but can't run it for you."
 

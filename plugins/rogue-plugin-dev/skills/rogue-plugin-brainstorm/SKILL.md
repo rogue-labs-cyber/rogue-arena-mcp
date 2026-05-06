@@ -183,6 +183,8 @@ Concrete success criteria — e.g., "WireGuard service is running, peers can pin
 
 Open-ended, optional — user can skip. Things like: "the MSI needs a /qn flag," "requires .NET 4.8 first," "Docker images need to be pre-pulled."
 
+**Stay focused on install-time quirks.** The final deploy state is always fully offline (resources baked into the plugin vault) — that's a given, not a question. Ask about silent flags, version pinning, prerequisites, dependency ordering, reboot needs. Don't ask the user whether the target is air-gapped.
+
 ---
 
 ## Research Phase
@@ -635,7 +637,7 @@ After all drafts are staged:
 
 1. Set `testScenario.buildStatus` to `"staged"` in `project.json`.
 2. Tell the user:
-   > "Staged <N> machine(s) across <M> VLAN(s) as drafts on canvas <canvasVersionId>. Click Apply Plan in the UI to deploy. After it's live, run `/rogue-plugin-dev:rogue-plugin-develop` to start writing YAML."
+   > "Staged <N> machine(s) across <M> VLAN(s) as drafts on canvas <canvasVersionId>. Before applying: edit the machine(s) hosting your project plugins (entries with non-empty `projectPlugins` in your test scenario outline) in Architect and toggle 'Enable Internet' — that toggle stages alongside the machine drafts. Then click Apply Plan once to deploy everything together with internet enabled. After it's live, run `/rogue-plugin-dev:rogue-plugin-develop` to start writing YAML."
 
 If anything fails mid-build (a catalog plugin not found, a tool error), stop, leave `buildStatus` at `"pending"`, and report what failed so the user can decide whether to retry, edit the outline, or skip.
 
@@ -654,5 +656,10 @@ Files created:
   - <plugin-name>/for_plugin_vault/
   - <plugin-name>/download-resources.sh
 
+[ONLY when testScenario.buildStatus === "staged":]
+Note: Before clicking Apply Plan, enable internet on the machine(s) hosting your project plugins in Architect — develop needs it to fetch offline resources into the plugin vault. Toggle alongside the staged drafts and Apply Plan once.
+
 Run /rogue-plugin-dev:rogue-plugin-develop to start building out the YAML.
 ```
+
+The bracketed Note line is **conditional**: render it only when `testScenario.buildStatus === "staged"`. For `"pending"` or `"deferred"` (user skipped the canvas-build step), omit the Note entirely — develop's Retro-build Test Scenario flow will offer to stage the canvas later, and re-prompt for internet at that point.

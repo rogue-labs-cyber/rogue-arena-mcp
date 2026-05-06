@@ -86,7 +86,7 @@ Before any filesystem operations, resolve the Rogue Labs workspace path:
 Throughout this skill, `{ROGUE_WORKSPACE}` refers to the resolved path (e.g., `~/RogueLabsClaude`).
 
 <HARD-GATE>
-Do NOT run Ansible, trigger builds, or execute commands on remote machines. The user owns all build and VM operations. After updating files, summarize what changed and wait for the user to run the build.
+The user owns full builds and deploys (clicking Apply Plan, VM provisioning, full-canvas redeploys, and any VM snapshot/revert through Architect). Claude may run individual commands on already-deployed VMs via `architect_deploy_*` tools for live validation and inspection — that's fix-discovery, not building. After updating files, summarize what changed and wait for the user to run the build.
 </HARD-GATE>
 
 ## Checklist
@@ -143,7 +143,8 @@ When `canvasVersionId` is present and the user says "check the build", "it's dep
    - **Deep-dive:** `architect_deploy_get_machine_details` (batch up to 10) — get errored plugin ymlIds
    - **Search logs:** `architect_deploy_log_query_raw(ymlId)` with patterns: `fatal:|FAILED!|unreachable`, `msg:|stderr:`, `Exception|Traceback`
    - **Check code:** `architect_deploy_get_ansible_code(ymlId)` — see what was actually executed
-4. Diagnose the failure, update the YAML/vault files, and push changes via MCP tools
+4. **Validate the fix live before re-codifying.** Use `architect_deploy_run_script` to test silent-install flags / commands directly on the build VM. Use `architect_deploy_read_file` / `architect_deploy_dir_listing` / `architect_deploy_grep_file` to verify state, paths, files, and registry. Iterate live until the command works, then bake it into `ansible_run.yml`. Reserve full redeploys for validating YAML structure and file copies — those can't be tested any other way; individual flags and commands can. **Snapshot/revert is not available** through the `architect_deploy_*` tools — Claude can't reset the build VM. If a clean state is needed (e.g., the live install left the VM in a half-state that would mask a re-run bug), ask the user to remove and redeploy the build through Architect. Otherwise, lean on idempotent Ansible guards (`creates:`, registry checks, `win_package` `state: present`) so the codified run is safe to re-apply against the dirty VM.
+5. Diagnose the failure, update the YAML/vault files, and push changes via MCP tools
 
 **Silent PowerShell gotcha:** `$ErrorActionPreference = 'Stop'` does NOT catch `.exe` exit code failures. When a Windows plugin fails with "Cannot find service X", look for a silent `.exe` install failure BEFORE the failing line, not at the failing line itself.
 
@@ -374,7 +375,7 @@ When **all plugins** in a project reach `done` status:
 
 **CRITICAL — Follow these rules:**
 
-- **Never run Ansible or trigger builds** — the user owns all build and VM operations
+- **Build ownership** — the user runs all builds, full deploys, snapshots, and Apply Plan. Claude's role is to edit files and summarize changes, then wait. Individual `architect_deploy_*` commands against already-deployed VMs are allowed for live fix-discovery and inspection.
 - **Always read current file state before editing** — no blind overwrites. Read the file first, then edit.
 - **Always update `project.json` `lastUpdate`** after making any changes to project files
 - **Reference the Ansible KB** when writing or editing YAML — especially module collections, privilege escalation, and validation patterns

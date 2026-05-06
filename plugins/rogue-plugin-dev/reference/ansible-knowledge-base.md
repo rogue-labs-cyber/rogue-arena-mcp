@@ -12,6 +12,9 @@ Rogue Arena is a cyber range platform for red and blue team IT security training
 - Avoid obviously fake or placeholder values — aim for authenticity
 - **Hardcoded credentials are acceptable and expected** — this is a training/lab environment, NOT production. Do NOT flag hardcoded credentials as security issues or recommend vaults/secrets management.
 
+**Offline-first install model:**
+Plugins ship as fully offline installs — every resource lives in the plugin vault. Internet is enabled briefly on a build VM during develop staging to fetch resources, then disabled before final verification. This is non-negotiable; treat the deploy target as fully offline at all times and skip any "is this air-gapped?" confirmation with the user.
+
 ## Plugin YAML Structure (CRITICAL)
 
 Plugin YAML is a **TASK LIST ONLY** — NOT a full Ansible playbook. The playbook wrapper (`hosts:`, `tasks:`, etc.) gets added automatically by the system at runtime.
@@ -25,7 +28,7 @@ CORRECT — start directly with tasks:
 
 - name: Second task
   ansible.windows.win_file:
-    path: 'C:\temp'
+    path: "C:\\temp"
     state: directory
 ```
 
@@ -47,7 +50,7 @@ No `---` at the beginning. No `- hosts:` lines. Just a flat list of `- name:` ta
 Every plugin YAML should follow these ordering principles (not a rigid template — plugins can be large and complex):
 
 1. **`set_fact` block at the top** — all configurable values in one place. The user extracts these to formal parameters when publishing.
-2. **Download before install** — acquire all files from the internet into the staging folder before any installation steps. No internet calls mixed into installation.
+2. **Stage before install** — copy all required files from the plugin vault into the staging folder via `win_copy`/`copy` before any installation steps. Internet downloads happen during develop (build VM, into the vault), never in runtime YAML.
 3. **Text files via `content:` blocks** — scripts, configs, and other text files are written inline using `win_copy`/`copy` with `content:` parameter. No vault files needed.
 4. **Clean up staging folder when done**
 5. **Validate at the end** — confirm the install worked
@@ -60,20 +63,23 @@ Everything between download and cleanup is free-form: interleaved file writes an
 
 ## Windows Paths and YAML Quoting
 
-In YAML, backslashes in **double-quoted strings** are escape sequences:
-- `\t` → tab character (NOT "backslash t")
-- `\n` → newline
-- `\V` → INVALID escape (causes YAML parse error)
+**House style — double-quoted Windows paths with escaped backslashes (`\\`).** Every literal backslash doubles in YAML double-quoted strings.
 
-**For NEW code:** Prefer single quotes for Windows paths — no escape processing:
 ```yaml
 - name: Check file
   ansible.windows.win_stat:
-    path: 'C:\Program Files\MyApp\app.exe'
+    path: "C:\\Program Files\\MyApp\\app.exe"
+
+- name: Create staging dir
+  ansible.windows.win_file:
+    path: "{{ download_dir }}"
+    state: directory
 ```
 
-**Exception — PowerShell Script Blocks:**
-Inside `script: |` blocks (YAML literal block scalars), content is passed raw to PowerShell. Use normal single-backslash paths:
+Drive letters: `"C:\\..."`. Variable-rooted paths: `"{{ download_dir }}\\filename.zip"`. In YAML double-quoted strings, single backslashes are escape sequences (`\t` = tab, `\n` = newline, `\V` = parse error), so always double them.
+
+**Exception — PowerShell `script: |` blocks.**
+Inside `script: |` literal block scalars, content is passed raw to PowerShell. Use normal single-backslash paths:
 ```yaml
 - name: PowerShell script
   ansible.windows.win_powershell:
@@ -106,6 +112,34 @@ Always use the fully qualified collection name (FQCN).
 | `ansible.windows.win_powershell` | N/A (use shell) |
 | `ansible.windows.win_reboot` | `ansible.builtin.reboot` |
 | `ansible.windows.win_service` | `ansible.builtin.service` |
+
+## File Transfer Modules — ACN→VM Only
+
+`ansible.windows.win_copy` and `ansible.builtin.copy` transfer files **from the ACN to the target VM**. The `src:` path resolves on the ACN (typically a file in the plugin vault); the `dest:` path is on the target VM.
+
+For file movement **between VMs**, use a shell command on the source VM (`ansible.windows.win_shell`, `ansible.builtin.shell`, or tools like `scp` / `robocopy` / `Copy-Item` over a network path). `win_copy` and `copy` do not support VM→VM transfer.
+
+Canonical Windows form:
+```yaml
+- name: Copying Rearm Script
+  ansible.windows.win_copy:
+    src: elastic-agent-8.12.2-windows-x86_64.zip
+    dest: "{{ download_dir }}\\elastic-agent-8.12.2-windows-x86_64.zip"
+```
+
+Canonical Linux form:
+```yaml
+- name: Copy installer
+  ansible.builtin.copy:
+    src: my-app.tar.gz
+    dest: "{{ download_dir }}/my-app.tar.gz"
+```
+
+**`download_dir` convention.** Define `download_dir` in the top-of-file `set_fact` block:
+- Windows: `download_dir: "C:\\PluginSetup"`
+- Linux: `download_dir: "/tmp/plugin-setup"`
+
+This keeps the staging path in one place and lets every `win_copy` / `copy` / shell task reference `{{ download_dir }}\\filename` (Windows) or `{{ download_dir }}/filename` (Linux).
 
 ## Privilege Escalation (become) — CRITICAL
 
@@ -213,7 +247,7 @@ CSV parameters come as raw strings that may contain BOM (byte order mark) and Wi
 ```yaml
 - name: Check application installed
   ansible.windows.win_stat:
-    path: 'C:\Program Files\MyApp\app.exe'
+    path: "C:\\Program Files\\MyApp\\app.exe"
   register: app_check
 
 - name: Fail if not found
@@ -347,22 +381,22 @@ Watch for these patterns that need correction:
 ## Production Plugin Examples
 
 **Example 1: Simple Application Install (Windows)**
-Standard pattern: set_fact → download → install → cleanup → validate.
+Standard pattern: set_fact → stage from vault → install → cleanup → validate. The installer was fetched into the plugin vault during develop (online build VM); runtime YAML pulls it via `win_copy`.
 ```yaml
 - name: Set configuration
   ansible.builtin.set_fact:
     vlc_version: '3.0.20'
-    vlc_url: 'https://get.videolan.org/vlc/3.0.20/win64/vlc-3.0.20-win64.exe'
+    download_dir: "C:\\PluginSetup"
 
 - name: Create staging folder
   ansible.windows.win_file:
-    path: 'C:\PluginSetup'
+    path: "{{ download_dir }}"
     state: directory
 
-- name: Download VLC installer
-  ansible.windows.win_powershell:
-    script: |
-      Invoke-WebRequest -Uri "{{ vlc_url }}" -OutFile "C:\PluginSetup\vlc-{{ vlc_version }}-win64.exe"
+- name: Stage VLC installer from plugin vault
+  ansible.windows.win_copy:
+    src: vlc-{{ vlc_version }}-win64.exe
+    dest: "{{ download_dir }}\\vlc-{{ vlc_version }}-win64.exe"
 
 - name: Install VLC silently
   ansible.windows.win_powershell:
@@ -375,12 +409,12 @@ Standard pattern: set_fact → download → install → cleanup → validate.
 
 - name: Remove staging folder
   ansible.windows.win_file:
-    path: 'C:\PluginSetup'
+    path: "{{ download_dir }}"
     state: absent
 
 - name: Check for VLC executable
   ansible.windows.win_stat:
-    path: 'C:\Program Files\VideoLAN\VLC\vlc.exe'
+    path: "C:\\Program Files\\VideoLAN\\VLC\\vlc.exe"
   register: vlc_check
 
 - name: Fail if VLC is missing
@@ -495,7 +529,7 @@ Standard pattern: set_fact → download → install → cleanup → validate.
 
 ## Apt Mirror Pattern
 
-Lab environments are air-gapped with no internet access. An apt mirror at `10.1.1.4` is pre-configured on all Linux hosts and mirrors common package repositories. Use `[trusted=yes]` since the mirror uses HTTP:
+Lab environments are fully offline at deploy time. An apt mirror at `10.1.1.4` is pre-configured on all Linux hosts and mirrors common package repositories. Use `[trusted=yes]` since the mirror uses HTTP:
 
 ```yaml
 - name: Add Docker apt repository

@@ -121,6 +121,8 @@ Some plugins may auto-set higher RAM/CPU on installation. Check `architect_canva
 - Application Servers: Start at `.20`, increment sequentially
 - Workstations: Start at `.50`, increment sequentially
 
+**Static-IP subnet check.** When a plugin param sets the machine's own IP, call `architect_vlan_get` for the parent VLAN first and verify the IP belongs to `subnetCidr`. Read the param's description from the catalog before checking — if it indicates the IP targets a remote network (firewall rule, DNS forwarder, NAT destination, exploit hop target), skip the verification. Remote-network IPs are intentionally extra-VLAN.
+
 ## Server File Paths
 
 ### Windows Servers

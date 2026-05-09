@@ -46,6 +46,9 @@ For 3+ machines, spawn haiku subagents in parallel (one per machine) — each ma
 1. Identify machines — `architect_canvas_get_overview` + `architect_files_list_counts` to find machines needing files.
 2. Get context — `architect_files_get_seeding_context({ machineIds: [machineNodeId] })` per machine.
 3. Generate manifest — group file entries into 3-6 themed categories per machine (e.g., "recent projects", "admin scripts", "personal") and submit via `architect_files_create` with `bpData.machineFile`. Total entries per machine follows the targets in Standard #7; a single batch holds up to 20 entries, split into multiple calls if the target exceeds 20.
+
+   **fileType mix.** Before generating the manifest, read the machine's context (backstory, role, installed plugins), the assigned user's context (department, level, day-to-day work), and the seeding goal (what story the files should tell). Choose fileTypes that would realistically exist on THAT specific machine for THAT specific user. A real corporate filesystem reflects real work — generic "office machine" templates are a tell. `.md` is for README-style notes only; never the default, never a majority of files.
+
 4. Include email artifacts (OST/PST/.eml), past-admin echoes (stale scripts, old config exports with former admins' names), and service-stack-matched configs for every machine.
 5. Verify — `architect_files_list_counts` again confirms all machines have files. Spot-check topic lengths (50+ chars), date distribution (4 tiers), and filing habit path compliance.
 

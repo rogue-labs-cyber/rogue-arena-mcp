@@ -13,7 +13,9 @@ Rogue Arena is a cyber range platform for red and blue team IT security training
 - **Hardcoded credentials are acceptable and expected** — this is a training/lab environment, NOT production. Do NOT flag hardcoded credentials as security issues or recommend vaults/secrets management.
 
 **Offline-first install model:**
-Plugins ship as fully offline installs — every resource lives in the plugin vault. Internet is enabled briefly on a build VM during develop staging to fetch resources, then disabled before final verification. This is non-negotiable; treat the deploy target as fully offline at all times and skip any "is this air-gapped?" confirmation with the user.
+Plugins ship as fully offline installs — non-apt resources live in the plugin vault. Internet is enabled briefly on a build VM during develop staging to fetch resources, then disabled before final verification. Treat the deploy target as fully offline at all times; skip any "is this air-gapped?" confirmation with the user.
+
+**Apt mirror exception (Linux deploy-time).** A local apt mirror at `10.1.1.4` IS available at runtime on every Linux host. Install apt packages (`docker-ce`, `nginx`, `python3-pip`, `openjdk-*`, etc.) directly via Ansible's `apt:` / `ansible.builtin.apt:` module against the mirror — do NOT pre-stage `.deb` files in the vault for anything available there. The vault is for non-apt resources only: proprietary installers, `.msi` / `.exe` files, Windows tooling, Docker images, git repos, pip packages not on the mirror, etc. See the "Apt Mirror Pattern" section below for the repo-add syntax.
 
 ## Plugin YAML Structure (CRITICAL)
 
@@ -50,7 +52,7 @@ No `---` at the beginning. No `- hosts:` lines. Just a flat list of `- name:` ta
 Every plugin YAML should follow these ordering principles (not a rigid template — plugins can be large and complex):
 
 1. **`set_fact` block at the top** — all configurable values in one place. The user extracts these to formal parameters when publishing.
-2. **Stage before install** — copy all required files from the plugin vault into the staging folder via `win_copy`/`copy` before any installation steps. Internet downloads happen during develop (build VM, into the vault), never in runtime YAML.
+2. **Stage before install** — copy non-apt resources from the plugin vault into the staging folder via `win_copy`/`copy` before any installation steps. Apt packages are the runtime exception: install them directly via the `apt:` module against the local mirror at `10.1.1.4` rather than pre-staging `.deb` files. Internet downloads from the public internet happen during develop (build VM, into the vault), never in runtime YAML.
 3. **Text files via `content:` blocks** — scripts, configs, and other text files are written inline using `win_copy`/`copy` with `content:` parameter. No vault files needed.
 4. **Clean up staging folder when done**
 5. **Validate at the end** — confirm the install worked

@@ -177,6 +177,24 @@ Surface auto-additions in the B.7 checkpoint summary so the user sees what was c
 
 This audit is non-optional. Future patterns (scheduled tasks, service installs, domain-join orchestration, etc.) extend this table as they surface — the pattern is "data setup ✓ + orchestration plugin ✓".
 
+### B.6.5: Plugin Discipline
+
+Four rules apply throughout plugin work — when adding, configuring, or auditing.
+
+**Static IP belongs in the VLAN's subnet.** When a plugin param sets the machine's own IP (typically "Create Static IP"), call `architect_vlan_get` for the machine's parent VLAN and verify the IP falls inside `subnetCidr`. If `subnetCidr` is null, prompt the user to set it before proceeding. **Read the param's description from the catalog first** — if the description indicates the IP targets a remote network (firewall rule, DNS forwarder, NAT destination, exploit hop target), skip the verification. Remote-network IPs are intentionally extra-VLAN.
+
+**Same-machine dep pairs are coupled.** When listing plugins on a machine, check each plugin's `isDependencyAdd` flag and `sameMachineDependencies` / `sameMachineDependents` arrays. A plugin with `isDependencyAdd: true` is auto-attached — the parent (in `sameMachineDependents`) owns ordering, configuration, and lifecycle; the dependent travels with it. Treat dep-pairs as a single unit on listings — describe them as "coupled," not duplicates. Never `_update` or `_reorder` a plugin where `isDependencyAdd: true`; target its parent instead. (Cross-machine deps via `crossMachineDependencies` are separate and behave normally.)
+
+**Plugin sequencing sanity.** When adding a plugin or auditing a machine's sequence, read each plugin's description and any `parentServerPlugins` from the catalog to determine prerequisites. Catalog metadata + prose are the source of truth — don't guess from plugin names. Common anti-patterns to watch for:
+
+- Domain-join AFTER auto-login of a domain user (login fails; user doesn't exist yet)
+- User-context plugins (Outlook, Mount Share, file-copy to user-profile paths like `C:\Users\<user>\`) BEFORE auto-login (user profile doesn't exist yet)
+- Permission grants (Add to Local Admins, Grant File Permissions) BEFORE the user exists
+
+Place new plugins AFTER their prerequisites. The B.6 File-Copy-after-Auto-Login rule is a specific case of this discipline.
+
+**Run-order tooling.** Each plugin returns `position` (1..N dense, derived per machine) and `runOrderSequence` (raw int the FE displays). Use `position` as your working model. To reorder a whole machine: `architect_assigned_plugin_reorder({ machineId, orderedAppliedPluginIds })` — one atomic call, weaves in same-machine deps automatically (omit `isDependencyAdd: true` plugins from input). To insert a single plugin at a specific spot: `_add` then `_update` with the desired `runOrderSequence` (any unused integer; gaps survive — hub doesn't reindex on `_update` or Apply Plan).
+
 ### B.7: Checkpoint
 - Run `architect_canvas_get_overview` to confirm machine and VLAN counts match the plan and to spot empty-plugin entities
 - Write diary entry: `diary_write` with type SCENARIO_BUILT, content summarizing machine counts, VLAN counts, deviations (including any orchestration plugins auto-added in B.6)

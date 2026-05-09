@@ -246,13 +246,13 @@ After the user picks a plugin:
 - `displayName` — human-readable name for the UI
 - `description` — max 600 characters (platform limit), explains what the plugin does for end users
 - `pluginType` — one of: `action`, `role`, `application`, `vulnerability`, `attack`, `defense`
-- `parameters` — array of parameter objects, each with `name`, `type`, `required`, `description`; CSV-type params also need `sampleCSV`
+- `parameters` — array of parameter objects, each with `name`, `type`, `required`, `description`; CSV-type params also need `sampleCSV`. **For `csv`-type params, the `description` MUST embed a copy-paste-ready example block** (headers + 4-10 realistic rows) so end users can copy-paste and edit directly from the platform UI.
 
 If ANY of these are missing or empty, **stop and collect them before proceeding with development work.** To generate them:
 1. Read the `ansible_run.yml` and identify all `{{ variable }}` references and `set_fact` values
 2. Propose a `displayName`, `description`, and `pluginType` for the plugin (default `pluginType` to `application` if intent is unclear, and call it out so the user can correct)
 3. Propose a complete parameter list with types and descriptions
-4. For any CSV parameters, generate a realistic sample CSV (headers + 4-6 rows)
+4. For any CSV parameters, generate a realistic sample CSV (headers + 4-10 rows) AND embed that same example as a fenced block inside the param's `description` field — both `sampleCSV` and `description` carry the example so the platform UI displays it inline
 5. Present the full metadata to the user for confirmation
 6. Write it into `project.json` once confirmed
 
@@ -426,18 +426,22 @@ Common develop-phase mistakes to watch for and avoid:
 
 ## Fetching Offline Resources via a Test VM
 
-The goal of every plugin is **fully offline install** — no `apt-get`/`wget`/`curl` reaching the public internet at deploy time. Resources must live in the plugin vault.
+The goal of every plugin is **fully offline install** — no `wget`/`curl` reaching the public internet at deploy time. Apt against the local mirror at `10.1.1.4` is the deploy-time exception: install Docker, system deps, language runtimes, etc. via Ansible's `apt:` module rather than vault-staging `.deb` files. All other resources (proprietary installers, container images, git repos, non-apt-available packages) must live in the plugin vault.
 
 If your plugin needs to download installers, packages, or container images that you can't get locally, drive a real VM to fetch them. The flow:
 
-### 1. Stage a canvas with internet on the relevant machine(s)
+### 1. Configure plugins fully, then enable internet on the build VM(s)
 
-If the test scenario isn't built yet, follow the brainstorm skill's "Build Test Scenario on Canvas" flow first. Then:
+If the test scenario isn't built yet, follow the brainstorm skill's "Build Test Scenario on Canvas" flow first.
 
-**Ask the user** to enable internet on the machine(s) that need it:
-> "I need internet on `<machine name>` to pull <X> for the offline install. In Architect, click edit on that machine and toggle 'Enable Internet'. Then click Apply Plan to deploy."
+**Order matters.** Before flipping internet, finish writing the plugin YAML, set all params, and push everything to the platform via `plugin_dev_update_yaml` / `plugin_dev_add_param` / `plugin_dev_update_param` / `plugin_dev_upload_to_vault`. The canvas will not redeploy successfully with internet on until the plugins on those machines are fully configured.
 
-Wait for the user to confirm the canvas is deployed.
+Once plugins are fully configured, **ask the user** to enable internet on the machine(s) that need to fetch resources:
+> "I need internet on `<machine name>` to pull `<X>` into the vault. In Architect, click **Edit** on that machine, expand **Advanced Options**, flip **'Enable Internet During Architect Build'**, then click **Apply Plan**."
+
+Internet on those machines is brokered by a separate **InternetProxy VM** that comes online alongside the toggled boxes — not direct cloud egress. The toggle takes effect once that proxy starts. If the proxy is already running and the user re-toggles, the existing internet connectivity stays available.
+
+Wait for the user to confirm the canvas redeployed with internet on the right machines.
 
 ### 2. Pull resources on the live VM
 
@@ -454,7 +458,7 @@ Once you have the artifacts locally under `for_plugin_vault/`, use `plugin_dev_u
 
 ### 4. Verify offline path
 
-**Ask the user** to disable internet on the test machine and re-deploy (or revert the test machine to a clean snapshot). Re-run the plugin against the now-isolated VM. Confirm install completes using only vault-served resources. If apt/yum reaches out to the internet at any point, the plugin isn't done.
+**Ask the user** to disable internet on the test machine and re-deploy (or revert the test machine to a clean snapshot). Re-run the plugin against the now-isolated VM. Confirm install completes using only vault-served resources plus the local apt mirror at `10.1.1.4`. If apt/yum reaches out to the **public** internet at any point — or if any `wget`/`curl`/`Invoke-WebRequest` call hits a public host — the plugin isn't done. (Apt traffic to `10.1.1.4` is the success state, not a failure.)
 
 ### 5. Finalize
 

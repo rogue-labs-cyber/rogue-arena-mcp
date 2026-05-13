@@ -240,7 +240,7 @@ Survey is silent prep. No question yet.
    - Fail-fast if either collides; propose alternatives.
 
 2. **Textual sketch (no writes yet).** Present:
-   - VLAN name, FQDN, graft point (existing domain or standalone).
+   - VLAN name, FQDN (must end in `.local`), graft point (existing domain or standalone).
    - Machine list with hostnames and roles.
    - Generated characters (name, role, security habits) for each workstation.
    - Plugin sketch for each machine.

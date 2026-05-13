@@ -142,7 +142,7 @@ The `purpose` field (min 30 chars) includes: machine types, domain join status, 
 
 For 3+ VLANs, spawn haiku subagents in parallel -- one per VLAN. Their outputs are independent. See [shared-rules.md SS Subagent Dispatch Pattern](../../refs/shared-rules.md#haiku-subagent-dispatch-pattern) for the canonical template shape.
 
-**Per-skill context block:** VLAN name, purpose, domain FQDN, company context (name, industry, departments), security posture, machine budget for this VLAN.
+**Per-skill context block:** VLAN name, purpose, domain FQDN (must end in `.local`), company context (name, industry, departments), security posture, machine budget for this VLAN.
 
 **Step 3 instruction:** "Generate bpData with purpose and zone. AD structure is configured later via DC plugin params after the DC machine is created. Return ONLY the bpData JSON -- the machine manifest is produced in Phase 3 by the orchestrator, not by this subagent."
 
@@ -232,7 +232,7 @@ Execution sequence:
 1. `architect_canvas_get_overview` -- read canvas state
 2. `architect_canvas_get_context` -- read full company narrative
 3. `architect_vlan_delete` x N -- clear existing VLANs if starting fresh
-4. Decide `plannedDomains[]` -- FQDNs (lowercase) + purposes from company narrative
+4. Decide `plannedDomains[]` -- FQDNs (lowercase, `.local` suffix) + purposes from company narrative
 5. Spawn subagent for forest events -> `architect_forest_manage` (generate) with `plannedDomains[]`
 6. `architect_plugin_catalog_search` -- broad search for machine roles (max 2 calls)
 7. Allocate machine budget across VLANs. Print budget table. Verify sum equals total.
@@ -247,13 +247,13 @@ Execution sequence:
 
 1. `architect_canvas_get_overview` -- read existing state
 2. `architect_canvas_get_context` -- verify company profile exists
-3. Decide new `plannedDomains[]` -- lowercase FQDNs
+3. Decide new `plannedDomains[]` -- lowercase FQDNs ending in `.local`
 4. Spawn subagent -> `architect_forest_manage` (update, not generate which overwrites)
 5. Steps 6-11 same as CREATE workflow
 
 ## Gates
 
-**GATE 1: FQDN Case.** All `domainFQDN` values are lowercase. Case-sensitive matching breaks on mixed case -- the implementor must confirm the lowercase form before calling any tool that accepts a domain FQDN.
+**GATE 1: FQDN Case & Suffix.** All `domainFQDN` values are lowercase AND end in `.local`. Case-sensitive matching breaks on mixed case; non-`.local` suffixes are rejected by the server-side write boundary. The implementor must confirm both before calling any tool that accepts a domain FQDN.
 
 **GATE 2: Causality Chain.** Every forest event references at least one prior event by ID in its description. Disconnected events produce a timeline, not a story -- rewrite instead of shipping.
 
@@ -276,4 +276,4 @@ Execution sequence:
 - Flag unrealistic budgets (e.g., 3 AD-enabled VLANs with a budget of 4) before generating.
 - Only assign plugins that serve a real role on the VLAN -- skip force-fits.
 
-Final check: every domainFQDN lowercase, every pluginVersionId from a catalog search this session, DC is item #1 in every AD-enabled VLAN.
+Final check: every domainFQDN lowercase and `.local`-suffixed, every pluginVersionId from a catalog search this session, DC is item #1 in every AD-enabled VLAN.

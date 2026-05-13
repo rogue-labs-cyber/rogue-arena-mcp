@@ -69,7 +69,7 @@ Any plugin parameter that references a username, samAccountName, or login creden
 
 **Efficient strategy:** For each domain, first collect the full user list from the DC's `CreateUsers` param (this may contain 200+ users in a CSV). Then sweep all machines in that domain, extracting usernames from every plugin parameter (auto-logon `username`, domain-join credentials, service account names, file-ownership references, etc.). Batch-compare against the DC user list rather than checking one machine at a time.
 
-**Cross-domain trusts:** A plugin parameter may reference a user from a trusted domain (e.g., `YOURCOMPANY\john.smith` on a machine in `YOURCOMPANY.LOCAL` referencing a user in `YOURCOMPANYPARTNER.LOCAL`). Before flagging `UNRESOLVED_PLUGIN_USER`, check the DCs of all domains that have a trust relationship with the machine's domain.
+**Cross-domain trusts:** A plugin parameter may reference a user from a trusted domain (e.g., `yourcompany\john.smith` on a machine in `yourcompany.local` referencing a user in `yourcompanypartner.local`). Before flagging `UNRESOLVED_PLUGIN_USER`, check the DCs of all domains that have a trust relationship with the machine's domain.
 
 **Credential matching:** When both a username and password appear in plugin params, verify the password matches what the DC has for that user. Password mismatches between plugin params and the DC's `CreateUsers` definition are a common cause of failed builds. Produces `PLUGIN_CREDENTIAL_MISMATCH` (FAIL — deterministic, **soft tone does NOT apply**; passwords either match or they don't).
 
@@ -186,7 +186,7 @@ This check is the union of three signals — declared deps, trust topology, and 
 ## Exploit Path Checks
 
 ### 1. Privilege Chain
-Each hop's outputPrivilege meets or exceeds the next hop's inputPrivilege. Domain context matters: `domain_admin` in CORP.LOCAL is NOT the same as `domain_admin` in OTHER.LOCAL.
+Each hop's outputPrivilege meets or exceeds the next hop's inputPrivilege. Domain context matters: `domain_admin` in `corp.local` is NOT the same as `domain_admin` in `other.local`.
 
 ### 2. Credential Flow
 Credentials are created before they are used (createdInHop < usageHop). Each credentialRef is unique. All credentialUsage references point to a valid earlier discovery.

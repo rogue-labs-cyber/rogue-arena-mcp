@@ -230,6 +230,8 @@ For each plugin, specify:
   - **defaultValue** — (optional) default if not provided
   - **sampleCSV** — (required if type is `csv`) the same example data that appears in the description, as a separate field. Source of truth; description embeds a copy of it.
 
+**Note for FQDN-shaped params:** When a param accepts an AD forest FQDN, child domain, DNS forwarding zone, or similar (typical name: `DomainNameFQDN`), the description MUST state that the value must end in `.local` — this is the lab-wide convention enforced by the platform at write time.
+
 Present as a numbered list. Iterate until the user confirms.
 
 **Guidelines:**
@@ -339,7 +341,7 @@ Plugins:
      Downloads needed: <list>
      Parameters:
        - Hostname (string, required) — Machine hostname
-       - DomainNameFQDN (string, required) — Full domain FQDN
+       - DomainNameFQDN (string, required) — Full domain FQDN (Rogue Arena lab convention: must end in `.local`, e.g. `corp.local`)
        - EnableFeatureX (boolean, optional, default: false) — Whether to enable X
        - UserList (csv, optional) — List of users to create
          Sample CSV:

@@ -484,7 +484,7 @@ Always call `plugin_dev_set_compatible_templates` with the narrowed list. Don't 
 
 Trigger this step when the plugin's params reference something a *different* plugin produces. Heuristics:
 
-- Plugin reads `DomainNameFQDN`, `DomainAdminPassword`, `DomainJoinUser`, etc. → likely depends on a DC-creation plugin.
+- Plugin reads `DomainNameFQDN`, `DomainAdminPassword`, `DomainJoinUser`, etc. → likely depends on a DC-creation plugin. (Lab convention: FQDN-shaped param values must end in `.local`; if a param description doesn't say so, update it via `plugin_dev_update_param`.)
 - Plugin connects to a server (Wireguard client → Wireguard server, Elastic agent → Elastic server, AD member → DC, Splunk forwarder → Splunk indexer) → likely depends on the server-side plugin.
 - Plugin requires a hostname, IP, or token that another plugin produces.
 

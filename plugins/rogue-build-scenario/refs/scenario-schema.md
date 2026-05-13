@@ -31,6 +31,7 @@ Key rules:
 - Use `count` for multiples of the same role (e.g., workstation ×6)
 - `trusts` are top-level (between domains), not nested
 - No `exploit_paths`, no `defaults`, no `plugin_mapping` — those belong in later files
+- All `fqdn` values MUST end in `.local` (e.g., `sienar.local`, `cygnus.sienar.local`) — Rogue Arena lab convention, enforced by the platform at write time
 - Standalone VLANs with no AD domain use `fqdn: null` and `type: standalone`
 
 ```yaml

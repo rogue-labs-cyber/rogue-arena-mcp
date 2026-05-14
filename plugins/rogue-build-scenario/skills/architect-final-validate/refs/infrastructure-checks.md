@@ -183,6 +183,27 @@ This check is the union of three signals — declared deps, trust topology, and 
 
 **Coverage gate:** emit a count line in the report — *"Cross-machine dependency edges evaluated: {n} declared / {m} trust-pair / {p} param-IP-derived"* — and the count of edges that produced findings. An edge skipped because port resolution failed produces `WARN (UNVERIFIED)` for that edge, not a silent pass.
 
+### 18. Plugin Parameter AD OU & Group Resolution
+Companion to Check 12, which covers AD **users** in plugin params. This check covers AD **OUs** and AD **groups** referenced in plugin params. The motivating bug: `Join Machine to Domain` plugins that target an OU (e.g., `OU=Workstations,OU=Corp,DC=corp,DC=local`) the DC's `CreateOUs` param never creates — domain join fails at deploy or the machine lands in `CN=Computers` by accident.
+
+**Strategy:** Use the per-domain `CreateOUs` and `CreateGroups` maps staged in §0. For each machine joined to a domain, walk every assigned plugin via `architect_assigned_plugin_get` and inspect param values for:
+
+1. **OU references** — fields named like `ou`, `ouPath`, `targetOU`, `computerOU`, `userOU`, `organizationalUnit`, `destinationOU`, or any LDAP-style distinguished name (`OU=...,OU=...,DC=...`). Also inspect inline scripts (Run PowerShell / Run Bash) for `-Path "OU=..."` patterns in `New-ADUser`, `New-ADComputer`, `Move-ADObject`, `Add-Computer -OUPath`, `dsmove`, `dsadd`, etc.
+2. **Group references** — fields named like `group`, `groupName`, `targetGroup`, `membership`, `addToGroup`, `securityGroup`, or any value that pairs a username with a group (CSV columns like `Member,Group`). Also inspect inline scripts for `Add-ADGroupMember`, `Add-LocalGroupMember -Group "..."`, `net group "..." /add`, `gpasswd -a ... "..."`, etc.
+
+For every reference found, resolve against the appropriate DC's `CreateOUs` / `CreateGroups` map:
+
+- **OU resolution rules** — normalize both sides (case-insensitive, strip spaces around `,` and `=`). The referenced OU's full DN must exist as a leaf in `CreateOUs`, OR every parent OU in the chain must exist (e.g., reference `OU=Engineers,OU=Workstations,OU=Corp,DC=corp,DC=local` requires the DC's `CreateOUs` to include both `OU=Corp` and `OU=Workstations,OU=Corp` and `OU=Engineers,OU=Workstations,OU=Corp`). Missing → `UNRESOLVED_PLUGIN_OU` (FAIL — domain join with a non-existent OU drops the computer in `CN=Computers` or fails outright).
+- **Group resolution rules** — exact case-insensitive name match against `CreateGroups`. Built-in groups (`Domain Admins`, `Domain Users`, `Enterprise Admins`, `Schema Admins`, `Administrators`, `Users`, `Remote Desktop Users`, `Backup Operators`, etc.) are always considered to exist — do not flag. Custom groups not in `CreateGroups` → `UNRESOLVED_PLUGIN_GROUP` (FAIL).
+
+**Cross-domain trusts:** if the machine's domain has a trust, also check the trusted domain's `CreateOUs` / `CreateGroups` before flagging (mirror of Check 12 logic).
+
+**Soft tone for OUs created out-of-band:** like Check 12, custom DC setup scripts may legitimately pre-create OUs the audit can't see. Frame `UNRESOLVED_PLUGIN_OU` as a directive — *"OU `{dn}` is not in the DC's `CreateOUs`. Verify it's provisioned out-of-band, or fix the DN."* No hedge phrases.
+
+**`UNRESOLVED_PLUGIN_GROUP` framing:** stricter than OUs — Windows reliably fails group operations against non-existent groups. Treat as a deterministic break unless the param description explicitly says the group is created at runtime.
+
+**Cross-link with Check 1** — Check 1's one-liner about OU paths in domain-join plugins is satisfied by this check; this is the enforced walk. Check 1 may still emit OU findings if it spots them, but Check 18 owns the systematic sweep.
+
 ## Exploit Path Checks
 
 ### 1. Privilege Chain
@@ -239,6 +260,8 @@ Techniques match the specified difficulty level. The validator queries the catal
 | `FIREWALL_BLOCKS_DEPENDENCY` | A declared cross-machine plugin dependency, trust-pair flow, or param-IP-derived flow is blocked by an explicit `drop`/`deny` rule or by `block_all` default with no covering `allow` | Check 17 |
 | `TRUST_PAIR_RESTRICTED` | A trust-pair connection is anything other than `defaultPolicy: allow_all` with no rules. Exception: an `aiNotes`-documented segmented-trust scenario whose rules cover the full DC-to-DC port set (53, 88, 135, 137-139, 389/636, 445, 464, 3268/3269, 49152-65535) — passes with WARN | Check 17 |
 | `MISSING_DEPENDENCY_CONNECTION` | Source and target machines of a cross-machine dependency live on different VLANs with no connection configured | Check 17 |
+| `UNRESOLVED_PLUGIN_OU` | OU referenced in a plugin param (or inline script) is not in the appropriate DC's `CreateOUs` (or any trusted DC's). Common cause: `Join Machine to Domain` targeting an OU the DC never creates | Check 18 |
+| `UNRESOLVED_PLUGIN_GROUP` | AD group referenced in a plugin param (or inline script) is not in the appropriate DC's `CreateGroups`, and is not a built-in group | Check 18 |
 
 ## Exploit Path Error Codes
 
@@ -259,7 +282,7 @@ Before running checks, prep the data you'll need across multiple checks:
 
 1. `architect_canvas_get_overview` for the full picture; `architect_canvas_get_projected_state` for the full draft state preview.
 2. `architect_vlan_get` per VLAN for machines + plugins. For 3+ machines, `discover_tools(search: "batch")` for batch reads.
-3. **DC user roster** — for each domain, read the DC's `CreateUsers` param once to build a complete user list before sweeping workstations. Note trust relationships for cross-domain user resolution.
+3. **DC AD rosters** — for each domain, read the DC's `CreateUsers`, `CreateOUs`, and `CreateGroups` params once to build complete user / OU / group lists before sweeping plugins. Note trust relationships for cross-domain resolution (users, OUs, and groups all may legitimately come from a trusted domain).
 4. **IP → machine map** — while reading machines, build a static-IP-to-machine lookup. This powers Check 13 (IP cross-referencing) without redundant queries. Note machines that lack a static IP.
 5. **Diff against last apply** — `discover_tools(search: "diff")` to see what changed since the last apply, when relevant.
 

@@ -69,7 +69,7 @@ Before Section 1, stage the data multiple sections need. Each lookup runs once; 
 
 1. **Canvas shape** — `architect_canvas_get_overview` for VLAN/machine counts and `resourceBudget`.
 2. **Machine roster** — `architect_machine_list` for the full machine list. (Overview returns counts, not the roster.)
-3. **DC roster + `CreateUsers` per domain** — for each domain, identify the DC machine(s) via `architect_machine_get`, then `architect_assigned_plugin_get_param` on the DC plugin's `CreateUsers` param. Build a `{domain → user list}` map. **Required for** §1.1 (Auto Login `username` → DC user resolution), §2 Checks 5 / 12 / 16 (assigned-user existence, plugin user resolution, samAccountName validity), and §3.A.3 (compromised SAM accounts).
+3. **DC roster + `CreateUsers` / `CreateOUs` / `CreateGroups` per domain** — for each domain, identify the DC machine(s) via `architect_machine_get`, then `architect_assigned_plugin_get_param` on the DC plugin's `CreateUsers`, `CreateOUs`, and `CreateGroups` params. Build three `{domain → list}` maps: users, OU distinguished-name paths, and group names. **Required for** §1.1 (Auto Login `username` → DC user resolution), §2 Checks 5 / 12 / 16 (assigned-user existence, plugin user resolution, samAccountName validity), §2 Check 18 (plugin OU/group reference resolution), and §3.A.3 (compromised SAM accounts).
 4. **Trust pairs** — `architect_forest_get_domain_trusts` to map cross-domain trust edges. Required for §1.1 cross-domain user resolution and §2 Check 4.
 5. **IP → machine map** — while reading machines, build a static-IP-to-machine lookup. Required for §2 Check 13.
 6. **Cross-machine dependency edges** — while reading plugins for §1, capture each plugin's `crossMachineDependencies` array from `architect_assigned_plugin_get`. Build the edge set `{sourceMachine, sourcePlugin, targetMachine, targetPlugin}`. Required for §2 Check 17.
@@ -160,7 +160,7 @@ This checklist grows as new patterns surface — both new coupling rules (data s
 
 ### 2. Infrastructure Correctness
 
-Load `refs/infrastructure-checks.md` and run **all 17 Infrastructure Checks** in full. The ref gives the strategy and error code per check; this section says *every* check runs against *every* applicable entity.
+Load `refs/infrastructure-checks.md` and run **all 18 Infrastructure Checks** in full. The ref gives the strategy and error code per check; this section says *every* check runs against *every* applicable entity.
 
 #### Walk discipline
 
@@ -169,7 +169,7 @@ The check categories iterate at different scopes — walk every entity in each s
 | Walk scope | Checks |
 |---|---|
 | **Per DC** (each domain controller in each domain) | 1, 3, 16 (DC `CreateUsers` validity) |
-| **Per machine** (every machine on canvas) | 2, 5, 6, 9, 16 (samAccountName in local-user plugin params + inline `New-LocalUser` / `useradd` scripts) |
+| **Per machine** (every machine on canvas) | 2, 5, 6, 9, 16 (samAccountName in local-user plugin params + inline `New-LocalUser` / `useradd` scripts), 18 (plugin OU/group references) |
 | **Per VLAN** | 7, 8, 10 |
 | **Per VLAN connection / trust pair** | 4, 14, 17 (trust-pair sub-rule) |
 | **Per cross-machine dependency edge** | 17 (declared deps + param-IP-derived flows) |

@@ -149,7 +149,7 @@ Write-Host "  Claude Code CLI found."
 # ── Register plugins via Claude Code's marketplace flow ─────────────
 Write-Host "  Registering Rogue Arena plugins..."
 
-$Plugins = @("rogue-build-scenario", "rogue-plugin-dev", "rogue-curriculum-builder", "rogue-active-deployment")
+$Plugins = @("rogue-build-scenario", "rogue-plugin-dev", "rogue-curriculum-builder", "rogue-active-deployment", "rogue-auto-update")
 $pluginCount = $Plugins.Count
 
 # Add marketplace (idempotent — ignore error if already registered)

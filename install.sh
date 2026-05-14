@@ -164,8 +164,8 @@ echo "  Claude Code CLI found."
 # ── Register plugins via Claude Code's marketplace flow ─────────────
 echo "  Registering Rogue Arena plugins..."
 
-PLUGINS="rogue-build-scenario rogue-plugin-dev rogue-curriculum-builder rogue-active-deployment"
-PLUGIN_COUNT=4
+PLUGINS="rogue-build-scenario rogue-plugin-dev rogue-curriculum-builder rogue-active-deployment rogue-auto-update"
+PLUGIN_COUNT=5
 
 # Add marketplace (idempotent — ignore error if already registered)
 claude plugin marketplace add "$REPO_URL" >/dev/null 2>&1 || true

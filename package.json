@@ -1,6 +1,6 @@
 {
   "name": "rogue-arena-mcp",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "MCP server connecting Claude Code to Rogue Arena",
   "license": "MIT",
   "type": "module",

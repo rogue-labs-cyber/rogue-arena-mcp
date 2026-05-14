@@ -1,0 +1,12 @@
+{
+  "checked_at": 1778790968,
+  "mcp_latest": "1.2.1",
+  "plugins_latest": {
+    "rogue-build-scenario": "2.0.0",
+    "rogue-plugin-dev": "1.1.0",
+    "rogue-curriculum-builder": "2.0.0",
+    "rogue-active-deployment": "2.0.0"
+  },
+  "release_body": "",
+  "release_tag": ""
+}

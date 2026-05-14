@@ -27,6 +27,12 @@
       "description": "Operate on a user's running Rogue Arena deployment — list VMs, execute commands, browse filesystems, manage snapshots, transfer files",
       "version": "2.0.0",
       "source": "./plugins/rogue-active-deployment"
+    },
+    {
+      "name": "rogue-auto-update",
+      "description": "Notifies you when a new Rogue Arena MCP server or plugin version is available.",
+      "version": "1.0.0",
+      "source": "./plugins/rogue-auto-update"
     }
   ]
 }

@@ -4,6 +4,7 @@ Connect Claude Code to your [Rogue Arena](https://roguelabs.io) workspace. This 
 
 - **MCP Server** -- authenticated proxy that gives Claude access to your canvases, deployments, plugins, and more
 - **4 Skills** -- teach Claude how to build scenarios, develop plugins, create curriculum, and operate on live deployments
+- **Auto-update notifier** -- prints a heads-up at session start when a new version is available
 
 ## Install
 

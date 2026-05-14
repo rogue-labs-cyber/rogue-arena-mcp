@@ -82,6 +82,7 @@ test_mcp_behind() {
   out=$(run_hook)
   assert_contains "mcp_behind_shows_header" "$out" "Rogue Arena update available"
   assert_contains "mcp_behind_shows_diff" "$out" "MCP server:"
+  assert_contains "mcp_behind_has_directive" "$out" "Before responding to the user"
   teardown_test
 }
 

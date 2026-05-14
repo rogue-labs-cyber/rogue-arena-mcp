@@ -114,6 +114,9 @@ for plugin in $PLUGINS_TO_CHECK; do
 done
 
 if [ -n "$diffs" ]; then
+  echo "<rogue-arena-update-available>"
+  echo "IMPORTANT: A Rogue Arena update is available. Before responding to the user's first message, show them the notice block below verbatim, then ask whether they want you to run the install command for them via Bash."
+  echo ""
   echo "═══════════════════════════════════════════════════════════════"
   echo "Rogue Arena update available"
   printf '%s\n' "$diffs"
@@ -127,6 +130,7 @@ if [ -n "$diffs" ]; then
   echo "To update, run:"
   echo "  ${INSTALLER_CMD}"
   echo "═══════════════════════════════════════════════════════════════"
+  echo "</rogue-arena-update-available>"
 fi
 
 exit 0

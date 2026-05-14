@@ -4,7 +4,7 @@ Connect Claude Code to your [Rogue Arena](https://roguelabs.io) workspace. This 
 
 - **MCP Server** -- authenticated proxy that gives Claude access to your canvases, deployments, plugins, and more
 - **4 Skills** -- teach Claude how to build scenarios, develop plugins, create curriculum, and operate on live deployments
-- **Auto-update notifier** -- prints a heads-up at session start when a new version is available
+- **Auto-update notifier** -- a SessionStart hook that pops a notice in your terminal whenever your installed MCP server or any plugin is behind the public GitHub repo, with the one-line update command. Silent when you're up to date.
 
 ## Install
 
@@ -86,10 +86,27 @@ Upload and download tools can read/write files on your local machine. Claude Cod
 | `ROGUE_HUB_URL` | `https://arena.roguelabs.io` | Hub API URL |
 | `ROGUE_VAULTS_URL` | Same as hub URL | Vaults service URL |
 | `ROGUE_CLIENT_ID` | `rogue-mcp` | Keycloak client ID |
+| `ROGUE_DISABLE_UPDATE_CHECK` | unset | Set to `1` to silence the auto-update notifier |
 
 ## Updating
 
-Re-run the install command to pull the latest version.
+You don't need to remember to update. The auto-update notifier checks GitHub once per session (cached for 24h) and surfaces a notice when your MCP server or any plugin is behind. Claude will offer to run the installer for you, or you can run it yourself:
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/rogue-labs-cyber/rogue-arena-mcp/main/install.sh | sh
+
+# Windows
+irm https://raw.githubusercontent.com/rogue-labs-cyber/rogue-arena-mcp/main/install.ps1 | iex
+```
+
+Re-running the installer refreshes everything: the MCP server, the `rogue-mcp` CLI, all skill content, and the plugin metadata. Your keychain auth token is preserved — no need to re-login.
+
+To silence the notifier (e.g., on an air-gapped machine):
+
+```bash
+export ROGUE_DISABLE_UPDATE_CHECK=1
+```
 
 ## Uninstalling
 

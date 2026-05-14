@@ -77,12 +77,14 @@ test_all_up_to_date() {
 }
 
 test_mcp_behind() {
-  echo "Test: MCP server behind -> shows MCP diff"
+  echo "Test: MCP server behind -> emits JSON with systemMessage + additionalContext"
   setup_test "mcp-behind"
   out=$(run_hook)
   assert_contains "mcp_behind_shows_header" "$out" "Rogue Arena update available"
   assert_contains "mcp_behind_shows_diff" "$out" "MCP server:"
-  assert_contains "mcp_behind_has_directive" "$out" "Before responding to the user"
+  assert_contains "mcp_behind_has_system_message" "$out" "systemMessage"
+  assert_contains "mcp_behind_has_additional_context" "$out" "additionalContext"
+  assert_contains "mcp_behind_has_hook_event" "$out" "SessionStart"
   teardown_test
 }
 

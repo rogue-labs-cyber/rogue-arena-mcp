@@ -114,23 +114,42 @@ for plugin in $PLUGINS_TO_CHECK; do
 done
 
 if [ -n "$diffs" ]; then
-  echo "<rogue-arena-update-available>"
-  echo "IMPORTANT: A Rogue Arena update is available. Before responding to the user's first message, show them the notice block below verbatim, then ask whether they want you to run the install command for them via Bash."
-  echo ""
-  echo "═══════════════════════════════════════════════════════════════"
-  echo "Rogue Arena update available"
-  printf '%s\n' "$diffs"
+  # Build the user-facing notice (rendered directly to terminal by Claude Code via systemMessage)
   if [ -n "$release_tag" ] && [ -n "$release_body" ]; then
-    echo ""
-    echo "What's new in ${release_tag}:"
-    printf '%s' "$release_body" | head -c 500
-    echo ""
+    notes_block="
+
+What's new in ${release_tag}:
+$(printf '%s' "$release_body" | head -c 500)"
+  else
+    notes_block=""
   fi
-  echo ""
-  echo "To update, run:"
-  echo "  ${INSTALLER_CMD}"
-  echo "═══════════════════════════════════════════════════════════════"
-  echo "</rogue-arena-update-available>"
+
+  user_msg="═══════════════════════════════════════════════════════════════
+Rogue Arena update available
+${diffs}${notes_block}
+
+To update, run:
+  ${INSTALLER_CMD}
+═══════════════════════════════════════════════════════════════"
+
+  # Build the directive for Claude (injected into context via additionalContext)
+  claude_msg="A Rogue Arena update is available and has already been shown to the user via systemMessage. When the user sends their first message, offer to run the install command for them via Bash:
+
+  ${INSTALLER_CMD}
+
+Versions behind:${diffs}"
+
+  # Emit Claude Code's hook output JSON envelope
+  jq -n \
+    --arg user_msg "$user_msg" \
+    --arg claude_msg "$claude_msg" \
+    '{
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: $claude_msg
+      },
+      systemMessage: $user_msg
+    }'
 fi
 
 exit 0

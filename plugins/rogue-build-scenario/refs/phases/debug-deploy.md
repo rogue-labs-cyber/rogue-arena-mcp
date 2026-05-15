@@ -24,7 +24,7 @@ Complete these steps in order:
 7. **Understand what the plugin does** — Call `architect_deploy_get_ansible_code` using the `ymlId` from machine details. Also call `architect_plugin_catalog_get_example` to compare against a working configuration.
 8. **Check configured parameters** — Call `architect_assigned_plugin_get` to see the exact params configured on the failing plugin. Call `architect_machine_get` to check plugin ordering on the machine.
 9. **Check machine and network context** — Call `architect_machine_get` for IP, template, and gateway config. Call `architect_vlan_get` for DNS forwarding, gateway, and parent domain. Call `discover_tools(search: "machine configs")` to check machine-level configuration if the failure is infrastructure-level. To inspect deployed file artifacts on a failed machine, call `discover_tools(search: "file_operations")` to access `architect_files_get_json`.
-10. **Check cross-machine dependencies** — If the failure involves domain joins, DNS, or network connectivity, use `architect_machine_list` to find DCs or other machines this one depends on. Check if dependency machines finished building via `architect_deploy_list_status`.
+10. **Check cross-machine dependencies** — If the failure involves domain joins, DNS, file shares, or *any* remote host access, call `architect_assigned_plugin_get` for the failing plugin and inspect its `crossMachineDependencies`. If the plugin reaches another machine but the deps array is empty, that's the bug — the play didn't wait for the target VM to be up (see "Missing cross-machine dependency" below). If deps are declared, verify dependency machines finished building via `architect_deploy_list_status`.
 11. **Live VM debugging** — If logs alone don't explain the failure, call `discover_tools(search: "exec vm command")` to run shell commands directly on the provisioning VM. Check service status, file existence, registry keys, or network connectivity from inside the failing machine.
 12. **Check remaining work** — Call `architect_deploy_list_remaining` to see which Ansible plays are still pending across machines. Useful for estimating whether a partial deployment is worth continuing or should be restarted.
 13. **Present findings** — Report per-machine: root cause, error pattern found, wrong configuration, suggested fix, and whether redeployment is required.
@@ -42,11 +42,12 @@ Present findings per machine:
 
 ## Investigation Discipline
 
-Three load-bearing rules that protect every diagnosis:
+Four load-bearing rules that protect every diagnosis:
 
 1. **Root cause, not symptom.** Error messages point to symptoms; the cause often sits upstream (see Silent PowerShell Exe Failures below). Stated root causes trace a causal line from cause to error message.
 2. **Read the ansible code.** `architect_deploy_get_ansible_code` for the failing plugin runs before the diagnosis is final. Diagnoses from log output alone miss what the plugin actually executes.
 3. **Every failed machine gets reviewed.** Shared misconfigurations (passwords, DNS forwarders, VLAN settings) cause correlated failures — `architect_deploy_list_failed` enumerates them all.
+4. **Reproduce live, then update the play.** When practical, pull the failing command out of the ansible task (usually in `module_args.script` or the failing shell line), run it on the VM via `architect_deploy_run_script`, watch it fail the same way, then iterate shell commands against the host until you have a working version. Bake the working command back into the plugin's PowerShell/Bash. Live shell → working command → codify into the play. Skipping the live repro is how you ship plays that "look fixed" but break on the next deploy. **Wiggle room:** some failures aren't cleanly reproducible by hand — destructive operations, multi-hour rebuilds, state that only exists mid-ansible-run, or VMs already torn down. When live repro is impossible or disproportionately cumbersome, say so explicitly in the finding and reason from the ansible code + logs instead.
 
 ## Error Handling
 
@@ -124,6 +125,8 @@ Discovered via `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory:
 **Template missing features** — Plugin requires a feature not present in the base template (e.g., .NET Framework version, Windows feature, wrong OS).
 
 **Ordering errors** — Workstation tried to join domain before DC finished provisioning. Check if dependency machine's build completed via `architect_deploy_get_machine_details`.
+
+**Missing cross-machine dependency** — Plugin touches a remote host (joins a domain, queries LDAP, hits an API, reaches a file share) but no cross-machine dependency is declared, so it runs before the target VM is up. Symptom: timeouts, "no route to host", "RPC server unavailable", or "could not resolve" — but only on first deploy / cold start. The DC or target machine eventually builds, so manual retries succeed and it looks like a flake. Especially common with hand-added PowerShell/Bash scripts hitting remote domains. Check `crossMachineDependencies` via `architect_assigned_plugin_get`; if the plugin reaches another machine and the deps array is empty, that's the bug. Fix with `architect_assigned_plugin_set_cross_machine_deps`.
 
 **Resource constraints** — Insufficient RAM, CPU, or disk for the plugin's requirements.
 

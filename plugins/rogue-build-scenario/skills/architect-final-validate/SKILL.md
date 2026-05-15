@@ -1,6 +1,6 @@
 ---
 name: architect-final-validate
-description: "Final pre-deploy audit of a Rogue Arena scenario canvas — plugin coupling & run-order, infrastructure correctness, exploit path trace via aiNotes + semantic checks, realism grade. Read-only. Triggers: 'final validate', 'validate my canvas', 'audit before deploy', 'is this ready to deploy', 'run final checks'."
+description: "Final pre-deploy audit of a Rogue Arena scenario canvas — plugin coupling & run-order, infrastructure correctness, exploit path trace via aiNotes + semantic checks, realism grade, operator & attack-infrastructure coverage. Read-only. Triggers: 'final validate', 'validate my canvas', 'audit before deploy', 'is this ready to deploy', 'run final checks'."
 disable-model-invocation: true
 ---
 
@@ -55,7 +55,7 @@ Pre-deploy audit run after build is complete and before Apply Plan. Read-only ca
 
 First reply must include one short line naming the run sequence. Example:
 
-> "Rogue Oracle here — running final validation: mechanical precheck, plugin coupling & run-order, infrastructure correctness, exploit path trace (via aiNotes), realism grade."
+> "Rogue Oracle here — running final validation: mechanical precheck, plugin coupling & run-order, infrastructure correctness, exploit path trace (via aiNotes), realism grade, operator & attack-infrastructure coverage."
 
 Then start executing immediately.
 
@@ -289,6 +289,62 @@ Each "evidence pointer" is a tool call result or a specific data point (e.g., *"
 
 A category line of `not evaluated · {reason}` triggers the ceiling-6 rule. Use only when truly impossible (e.g., scenario lacks any file servers → file_services is N/A but still must be emitted with reason).
 
+### 5. Operator & Attack-Infrastructure Coverage
+
+Two related sub-checks for student-facing offensive scaffolding. Both are **informational** — findings here do **not** block the verdict. A scenario can legitimately ship without either (self-contained CTF, defensive-only SOC lab). The point is to catch the common case where the builder forgot.
+
+#### 5.1 Operator Machines
+
+Checks whether the canvas has any **operator machines** — student-facing boxes that learners log into and work the lab from. Two flavors count:
+
+- **Red-team operator** — Kali or Windows attack box the student uses to run the engagement.
+- **Blue-team operator** — Kali or Windows defender box the student uses for SOC / IR / hunt work.
+
+**Detection** — any one of the following signals counts as "operator machine present":
+
+1. **Role plugin assigned** — `architect_canvas_global_search` for `"Create Rogue Kali Attack Machine"` and `"Create Windows Attack Machine"`. Any hit on either → red-team operator present.
+2. **`rogueoperator` user assigned** — walk the cached machine roster from §0; any machine whose `assignedUsers` contains `samAccountName == "rogueoperator"` → operator present (red or blue).
+3. **aiNotes operator marker** — `architect_canvas_global_search` across `"operator workstation"`, `"attack box"`, `"blue team"`, `"defender workstation"`, `"SOC analyst"`. Any machine-scoped hit → operator present.
+
+If **all three** detection passes return empty → no operator machine on canvas.
+
+**Action:**
+
+- **Present** → ✓ line listing the detected machines and which signal classified them (red / blue / unclassified).
+- **None** → emit the operator prompt block defined under Report Format §5.1. Don't auto-add — the user picks. Once the user replies with which OS(es) they want, hand off to the implementor / a follow-up turn for the actual `architect_assigned_plugin_add` calls (this skill is read-only).
+
+When prompting, the two add options are:
+
+- **Create Rogue Kali Attack Machine** — Kali attack box for the operator.
+- **Create Windows Attack Machine** — Windows attack box for the operator.
+
+Operator user param defaults to `rogueoperator` for both.
+
+#### 5.2 Attack Tooling
+
+Checks whether the canvas has any **attack tooling** installed on operator-side machines — C2 frameworks, loader generators, phishing infrastructure, etc. The canonical question is *"if a student spawns the operator box, do they have the tools they need to attack?"*
+
+**Detection** — resolve attack-tool plugin candidates at runtime, don't hardcode tool names (catalog evolves):
+
+1. **Plugin catalog scan** — `architect_plugin_catalog_search` once per term, across this query set:
+   - `"C2"`, `"command and control"`, `"Sliver"`, `"Havoc"`, `"Mythic"`, `"Cobalt"`
+   - `"loader"`, `"shellcode"`, `"payload generator"`, `"Shhhloader"`
+   - `"phishing"`, `"GoPhish"`, `"Evilginx"`
+   - `"BloodHound"`, `"Responder"`, `"Impacket"` (post-exploitation tooling installed as a kit, not ad-hoc usage)
+
+   Union the matched plugin IDs into a candidate set.
+2. **Assigned check** — for every machine on canvas (cached roster from §0), inspect its assigned plugins (already pulled in §1). If any assigned plugin's ID is in the candidate set → attack tool present; record `{machine, plugin}` for the report.
+3. **aiNotes marker fallback** — `architect_canvas_global_search` for `"C2 server"`, `"red-team toolkit"`, `"attack toolkit"`. Treat any machine-scoped hit as attack-tool present (lets a builder who hand-installed tooling still pass without a plugin signal).
+
+If **all three** detection passes return empty → no attack tooling on canvas.
+
+**Conditional emphasis** — if §5.1 found a red-team operator but §5.2 found no attack tools, raise the prompt's prominence (still informational, not blocking) — that combination is almost always a build oversight. If §5.1 also found nothing (or only blue-team), the §5.2 prompt is softer (defensive-only labs may legitimately skip attack tooling).
+
+**Action:**
+
+- **Present** → ✓ line listing detected `{machine — plugin}` pairs.
+- **None** → emit the attack-tool prompt block defined under Report Format §5.2. The skill does not pick a specific framework for the user — it surfaces that nothing is present and asks which (if any) to add. Catalog search at handoff time identifies the actual install plugins.
+
 ## Report Format
 
 Single consolidated report at the end. No mid-run check-ins — the user gets one read.
@@ -381,11 +437,47 @@ Per-category evaluation: {emit-and-cite list per existing pipeline}
 Why not one lower: {evidence}
 What would raise by one: {improvement}
 
+## Section 5 — Operator & Attack-Infrastructure Coverage
+*Two informational sub-checks for student-facing offensive scaffolding. Neither gates the verdict — both prompt the user when missing.*
+
+### 5.1 Operator Machines
+
+[If at least one operator machine is detected:]
+
+✓ Operator machines present: WS-KALI01 (red — Create Rogue Kali Attack Machine), WS-WIN01 (red — rogueoperator user), SOC01 (blue — aiNotes marker).
+
+[If none detected:]
+
+⚠ No operator machines detected on this canvas.
+
+> Operator machines are the student-facing boxes learners log into to work the lab. Want me to add one or more?
+>
+> - **Create Rogue Kali Attack Machine** — Kali attack box
+> - **Create Windows Attack Machine** — Windows attack box
+>
+> I'll fill the operator user param with `rogueoperator`. Reply with which OS(es) you want, or skip if intentional (CTF lab, headless scenario, etc.).
+
+### 5.2 Attack Tooling
+
+[If at least one attack tool is detected:]
+
+✓ Attack tooling present: WS-KALI01 — Install Sliver C2; WS-KALI01 — Install BloodHound.
+
+[If none detected and a red-team operator exists per §5.1:]
+
+⚠ No attack tooling detected — and a red-team operator machine is present, which usually means the build is incomplete.
+
+[If none detected and §5.1 also found nothing or only blue-team operators:]
+
+⚠ No attack tooling detected on this canvas.
+
+> No C2, loader, or other red-team tooling is installed. If this scenario expects students to run an offensive workflow, they'll need at least one. Want me to add a C2 framework or other attack tool? Common picks include Sliver, Havoc, Mythic, GoPhish, BloodHound — let me know which and I'll resolve the install plugin from the catalog and stage it on the operator box. Skip if the scenario is defensive-only or the tooling is intentionally hand-installed.
+
 ## Verdict
 
 **Ready for Apply Plan: {YES | NO}**
 
-YES iff: zero CRIT and zero HIGH findings across all sections AND realism score ≥ 5. MED and LOW findings are informational — surfaced for reviewer judgment, not blocking.
+YES iff: zero CRIT and zero HIGH findings across all sections AND realism score ≥ 5. MED and LOW findings are informational — surfaced for reviewer judgment, not blocking. Section 5 (operator & attack-infrastructure coverage) is also informational — missing operator machines or attack tooling prompts the user but does not block YES.
 
 Top 3 fixes (if NO): {ranked list of highest-severity findings with one-line fix}.
 ```

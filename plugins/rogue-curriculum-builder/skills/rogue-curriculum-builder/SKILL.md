@@ -135,8 +135,10 @@ After the hard gates, classify the user's request. **Announce your classificatio
 - Create nodes with `curriculum_create_ctf_node`, then immediately connect them with `curriculum_manage_ctf_edges`. Never leave orphaned nodes.
 
 **Unlock keys** — User mentions locking, flags, keys, or challenge gating.
-- Call `curriculum_get_unlock_key_candidates` to see available machines from the linked canvas
-- Ask which chapter/node, what key value, what hint, and optionally which machine the key is tied to. Use `curriculum_add_unlock_key`.
+- Call `curriculum_get_unlock_key_candidates` to see available machines (and their operating systems) from the linked canvas.
+- Decide which chapter/node to gate and write a student hint. The platform generates the key value — you do not supply it.
+- `curriculum_add_unlock_key` requires `assignToMachineNickname` and an absolute `keyfilepath` on that machine: a Linux path starting with `/`, or a Windows path starting with a drive letter. Pick a path that does not already exist; the hub writes the key value there at deploy time.
+- To change a key later, use `curriculum_update_unlock_key` — it can update the hint, admin nickname, or `keyfilepath`.
 
 **Quiz questions** — User wants to create, update, or delete quiz questions on a chapter or node.
 - Use `curriculum_manage_questions` to add, edit, or remove questions. Always call `curriculum_get_chapter_blocks` first to confirm the target chapter exists and note any existing question blocks.

@@ -318,5 +318,7 @@ If partial build detected (via diary entries + implementation.yml on disk):
 ## Apply Plan Reminders
 At every checkpoint and at completion, remind: "These changes are staged as drafts. Apply Plan in the UI when you're ready to deploy."
 
+**Run precheck before sending the user to Apply Plan.** Any time you reach a stopping point and are about to tell the user to hit Apply Plan, first call `architect_canvas_precheck` (read-only — runs 8 deterministic checks against the projected canvas: missing required params, malformed CIDR, duplicate names, empty-plugin machines, unwired dep edges, unreachable cross-machine deps). It routinely surfaces lingering bugs that are invisible otherwise. If it returns any `error`-severity findings, fix them and re-run before handing off. Report the precheck result (clean, or findings + what you fixed) when you tell the user it's ready.
+
 ## Content Policy
 Enforced per refs/shared-rules.md throughout all phases.

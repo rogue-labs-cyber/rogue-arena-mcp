@@ -606,6 +606,8 @@ If the user skips this, the develop skill will ask again when debugging is neede
 
 ## Build Test Scenario on Canvas (Optional)
 
+> **YOU (the assistant) build this — not the user.** You call the architect MCP tools directly. Do NOT tell the user to run architect-freeform or any other skill. This section is a complete, self-contained build flow executed by you.
+
 Triggered only when **both** are true:
 - `project.json` has a `testScenario` outline (always present after scaffold)
 - `canvasVersionId` is now set (just collected above)
@@ -639,7 +641,7 @@ Follow `freeform-context.md` rules. Staging order, top-down:
    - Call `architect_assigned_plugin_add` to attach each plugin. The plugin's catalog entry contains its own verbose configuration instructions — **read the catalog entry and follow those instructions** for any required params; do not invent values.
    - For required params, follow the LAW: `architect_plugin_catalog_list_full` (with the assigned plugin's `pluginVersionId`) BEFORE `architect_assigned_plugin_set_params`. Use the discovered field names verbatim.
 
-Skip realism details that aren't in the outline (user account assignments, file seeding, exploit paths, IP details). The goal is a minimal test bed, not a polished scenario. If the user wants more, they can run `/rogue-build-scenario:architect-freeform` afterward.
+Skip realism details that aren't in the outline (user account assignments, file seeding, exploit paths, IP details). The goal is a minimal test bed, not a polished scenario.
 
 ### Update build status
 

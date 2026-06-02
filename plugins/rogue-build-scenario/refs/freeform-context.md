@@ -46,13 +46,15 @@ DC count guidance: 1 DC per domain for small scenarios (<20 VMs), 2 for medium (
 
 ## 5. Plugin Param Discovery Workflow
 
-**LAW: Call `architect_plugin_catalog_list_full` with the plugin's `pluginVersionId` BEFORE calling `architect_assigned_plugin_set_params`.** Field names vary between plugin versions — guessing produces silent misconfigurations that only surface at deployment.
+**LAW: Call `architect_plugin_catalog_list_full` with the plugin's `pluginVersionId` BEFORE calling `architect_assigned_plugin_set_params`.** Field names vary between plugin versions — guessing produces silent misconfigurations that only surface at deployment. The same call also returns `addonConfigSamples[{ sampleId, name, notes, language }]` — the plugin's curated library of ready-to-deploy runtime config blobs.
 
-Workflow: (1) Install plugin via `architect_assigned_plugin_add`, (2) call `architect_plugin_catalog_list_full` to get exact param names, types, descriptions, and CSV headers, (3) call `architect_assigned_plugin_set_params` with the discovered field names.
+Workflow: (1) Install plugin via `architect_assigned_plugin_add`, (2) call `architect_plugin_catalog_list_full` to get exact param names, types, descriptions, CSV headers, AND `addonConfigSamples[]`, (3) for any `stringBlock`-shaped runtime config param (Ghosts timelines, C2 profiles, rule sets), scan `addonConfigSamples[].notes` for a story-match against the machine's purpose / assigned user / exploit-hop intent before authoring from scratch. On match, fetch via `architect_plugin_catalog_get_addon_config_sample({ sampleId })`, tweak in memory (substitute SAMs, hostnames, file paths), and pass the tweaked blob to `_set_params`. (4) Configure remaining params normally.
 
-For DC CSV params (CreateUsers, CreateOUs, CreateGroups): the catalog returns exact header schemas via `ifCSVListOfHeaderStringValues`. Use those headers verbatim — invented headers fail silently. CSV values are passed as raw strings (headers + rows, no code fences).
+DISTINCT from `architect_plugin_catalog_get_example` — that tool returns plugin USAGE examples (param patterns + sibling plugins + machine context from real scenarios). `architect_plugin_catalog_get_addon_config_sample` returns the CONFIG content the plugin operates on. Use `_get_example` to learn how to wire a plugin into a machine; use `_get_addon_config_sample` to learn what to put inside one of its `stringBlock` params.
 
-Use `architect_plugin_catalog_search` to find plugins by name or category. Use `architect_plugin_catalog_get_example` for sample param values. Stop searching after 3 catalog queries for the same plugin type — if it is not in the catalog, it does not exist.
+For DC CSV params (CreateUsers, CreateOUs, CreateGroups): the catalog returns exact header schemas via `ifCSVListOfHeaderStringValues`. Use those headers verbatim — invented headers fail silently. CSV values are passed as raw strings (headers + rows, no code fences). Samples typically don't cover DC CSVs — those are scenario-identity, not runtime config.
+
+Use `architect_plugin_catalog_search` to find plugins by name or category (`addonConfigSampleCount` per result tells you upfront which plugins ship curated content). Stop searching after 3 catalog queries for the same plugin type — if it is not in the catalog, it does not exist.
 
 ## 6. Account Type Separation
 

@@ -377,6 +377,13 @@ When calling multiple MCP tools in sequence, batch-fetch their schemas with a si
 - exploits: `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "exploit")` for exploit technique list, hop, credential, and reachability tools.
 - debug-deploy: `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "deploy")` for the 6 LIVEDEPLOY tools.
 
+**Plugin-catalog tool naming — `_get_example` vs `_get_addon_config_sample`.** These two are easy to confuse and serve different purposes:
+
+- `architect_plugin_catalog_get_example` — returns a plugin USAGE example from real scenarios (params + sibling plugins + machine context). Use when you're deciding "how do I wire this plugin into a machine?"
+- `architect_plugin_catalog_get_addon_config_sample({ sampleId })` — returns CONFIG content the plugin operates on at runtime (Ghosts timeline JSON, BloodHound query, C2 profile, etc.). Use when you've installed the plugin and need to fill one of its `stringBlock`-shaped runtime config params.
+
+`architect_plugin_catalog_list_full` surfaces the per-plugin-version `addonConfigSamples[{ sampleId, name, notes, language }]` summaries that `_get_addon_config_sample` resolves against. The `notes` field is the discovery surface — Claude reads it to pick the right sample. Samples are read-only on the architect side (authoring lives in the plugin-dev skill set).
+
 ## Industry Regulatory Frameworks
 
 Regulated industries shape everything downstream — AD structure, file content, audit logging, segmentation.

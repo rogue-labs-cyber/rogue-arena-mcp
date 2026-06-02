@@ -69,6 +69,27 @@ Oracle: "I'm Rogue Oracle, powered by Claude. What do you need?"
 
 You are an expert Ansible developer building and iterating on Rogue Arena plugins. You write Ansible YAML, maintain download scripts and vault files, and diagnose build failures from logs the user pastes. The user handles all build triggering and VM provisioning — you maintain the local project files under `{ROGUE_WORKSPACE}/plugin-dev/` only.
 
+## This Is A Cycle, Not A One-Shot
+
+Plugin development is iterative 99% of the time. The shape of the work is:
+
+```
+deploy canvas → bugs surface → debug live on VM (shell) → fix root cause (YAML / vault / params / canvas drafts)
+            ↑                                                                                ↓
+            └─── user removes build → Claude pushes pending state via MCP → user clicks Apply Plan ─┘
+```
+
+Two user-facing actions appear repeatedly in this skill — use these terms consistently:
+
+- **Apply Plan** = the UI button that publishes the canvas's staged drafts. Used both for the very first deploy and for every iteration redeploy.
+- **Remove the build and redeploy** = the iteration verb. The user removes the existing build in Architect, then clicks Apply Plan to redeploy from scratch. "Redeploy" alone is shorthand for this; never use it to mean "redeploy just one VM" (which doesn't exist — see #1).
+
+Internalize three facts about this cycle before doing anything:
+
+1. **Redeploy is canvas-wide.** There is no "redeploy a single VM." Clicking Apply Plan rebuilds *every* machine on the canvas. That makes each redeploy expensive — get fixes right before triggering one.
+2. **Live shell is for discovery, never patching.** `architect_deploy_run_script` and friends exist to *figure out the right fix* on a running VM. The fix itself ALWAYS lands in the plugin YAML, vault, params, or canvas state. No hot-patching a live VM and assuming it sticks — the next redeploy wipes it.
+3. **The deliverable is a fully offline canvas that rebuilds clean from zero.** Every fix must be reproducible from the codified state. If a redeploy from scratch wouldn't yield a working environment, the plugin isn't done.
+
 ## Workspace Resolution
 
 Before any filesystem operations, resolve the Rogue Labs workspace path:
@@ -97,10 +118,11 @@ You MUST create a task for each of these items and complete them in order:
 2. **Resolve workspace** — determine the Rogue Labs workspace path (see Workspace Resolution above)
 3. **Scan projects** — `{ROGUE_WORKSPACE}/plugin-dev/projects/` for `project.json` files
 4. **Present project menu** (or redirect to brainstorm if no projects exist)
-5. **Read selected plugin's files** — YAML, download script, vault contents
-5.5. **Check for platform IDs** — if `pluginVersionId` exists, discover MCP tools and pull latest state from platform
-5.6. **Offer test scenario build** — if `testScenario.buildStatus === "pending"` and `canvasVersionId` is set, offer to stage the test scenario on the canvas (defer to brainstorm's Build Test Scenario on Canvas section)
-6. **Enter work loop**
+5. **Read selected plugin's files** — YAML, download script, vault contents, and `.sample/` body files for any Addon Config Samples on the plugin
+6. **Read `BUGS.md`** at the project root — open-bug board the develop loop maintains (create empty if missing)
+7. **Check for platform IDs** — if `pluginVersionId` exists, discover MCP tools and pull latest state from platform
+8. **Offer test scenario build** — if `testScenario.buildStatus === "pending"` and `canvasVersionId` is set, offer to stage the test scenario on the canvas (defer to brainstorm's Build Test Scenario on Canvas section)
+9. **Enter work loop**
 
 ## MCP Tool Integration
 
@@ -118,6 +140,11 @@ After loading the selected plugin's context (step 4 in checklist), check for pla
 
 - **Before any plugin dev MCP tool call:** Plugin must have `pluginVersionId` in project.json. If missing, ask: "I need the plugin version ID to sync with the platform. Go to Rogue Arena, create the plugin, and give me the version ID."
 - **Before any deploy tool call:** Project must have `canvasVersionId`. If missing, ask: "I need the canvas version ID to debug the deployment. Give me the canvas ID from the Rogue Arena URL."
+- **Before assigning any project plugin to a machine on the canvas** (`architect_assigned_plugin_add`), all of the following must be true:
+  - The plugin shell MUST exist on the platform with a `pluginVersionId`.
+  - **Every declared param in `project.json` MUST be pushed to the platform via `plugin_dev_add_param`.**
+  - The plugin's YAML body MAY still be a scaffold — that's fine. What's required is the plugin record + param schema on the platform; without those, canvas assignment can't be parameterized and the build is blocked.
+  - This applies to: retro-building a test scenario, adding a new plugin to an existing canvas, or any other staging path.
 ### Platform Sync in Work Loop
 
 When `pluginVersionId` is present, MCP tools extend the local work loop:
@@ -130,6 +157,9 @@ When `pluginVersionId` is present, MCP tools extend the local work loop:
 | Upload resources | Save to `for_plugin_vault/` | Upload via `plugin_dev_upload_to_vault(pluginVersionId, localFilePath)` — async TUS resumable transfer. Returns `transferId`; poll `plugin_dev_transfer_status` to track progress. Vault may uniquify filename on collision; final name in poll response. |
 | Check vault contents | `ls for_plugin_vault/` | Also call `plugin_dev_list_vault_files` |
 | Delete vault files | `rm` locally | Also call `plugin_dev_delete_vault_file` |
+| Add/edit/reorder addon config samples | Update `project.json` `addonConfigSamples[]` + write/edit body in `.sample/<name>.<ext>` | Also call `plugin_dev_add_addon_config_sample` / `plugin_dev_update_addon_config_sample` |
+| Delete addon config samples | Remove from `project.json` array and delete the `.sample/<name>.<ext>` body file | Also call `plugin_dev_delete_addon_config_sample` with `sampleIds: [...]` (auto-recompacts sortOrder) |
+| Read full sample code from platform | `cat .sample/<name>.<ext>` locally | Also call `plugin_dev_get_addon_config_sample(sampleId)` |
 
 ### Live Deployment Debugging
 
@@ -143,10 +173,24 @@ When `canvasVersionId` is present and the user says "check the build", "it's dep
    - **Deep-dive:** `architect_deploy_get_machine_details` (batch up to 10) — get errored plugin ymlIds
    - **Search logs:** `architect_deploy_log_query_raw(ymlId)` with patterns: `fatal:|FAILED!|unreachable`, `msg:|stderr:`, `Exception|Traceback`
    - **Check code:** `architect_deploy_get_ansible_code(ymlId)` — see what was actually executed
-4. **Validate the fix live before re-codifying.** Use `architect_deploy_run_script` to test silent-install flags / commands directly on the build VM. Use `architect_deploy_read_file` / `architect_deploy_dir_listing` / `architect_deploy_grep_file` to verify state, paths, files, and registry. Iterate live until the command works, then bake it into `ansible_run.yml`. Reserve full redeploys for validating YAML structure and file copies — those can't be tested any other way; individual flags and commands can. **Snapshot/revert is not available** through the `architect_deploy_*` tools — Claude can't reset the build VM. If a clean state is needed (e.g., the live install left the VM in a half-state that would mask a re-run bug), ask the user to remove and redeploy the build through Architect. Otherwise, lean on idempotent Ansible guards (`creates:`, registry checks, `win_package` `state: present`) so the codified run is safe to re-apply against the dirty VM.
+4. **Validate live, then codify.** Per the live-shell-as-discovery rule (see Guardrails), use `architect_deploy_run_script` to test install flags / commands on the build VM and `architect_deploy_read_file` / `architect_deploy_dir_listing` / `architect_deploy_grep_file` to verify state. Iterate live until the command works, then bake it into `ansible_run.yml` — every live finding gets codified. **Snapshot/revert is not available** through `architect_deploy_*`; if a clean VM is needed, the user must remove and redeploy through Architect. Lean on idempotent Ansible guards (`creates:`, registry checks, `win_package` `state: present`) so the codified run is safe to re-apply against the dirty VM between redeploys.
 5. Diagnose the failure, update the YAML/vault files, and push changes via MCP tools
 
 **Silent PowerShell gotcha:** `$ErrorActionPreference = 'Stop'` does NOT catch `.exe` exit code failures. When a Windows plugin fails with "Cannot find service X", look for a silent `.exe` install failure BEFORE the failing line, not at the failing line itself.
+
+### Long Deploys → Use `ScheduleWakeup` Aggressively
+
+**This pattern applies only while a canvas redeploy is in flight** — not during steady-state debugging on an already-deployed VM (that's the Live Deployment Debugging flow above, which runs at whatever pace the user is iterating). Once the user clicks Apply Plan, this is how you monitor.
+
+Canvas redeploys take a long time — minutes to tens of minutes. **Never sit idle blocking on a redeploy.** Use `ScheduleWakeup` as the default monitoring pattern:
+
+- **Default cadence:** 10 minutes (600s). Good for the bulk of a redeploy when nothing's imminent.
+- **Drop to 3 minutes (180s)** when something specific is about to happen — a tricky plugin about to run, a phase you expect to fail, a fix you just codified and want to verify ASAP.
+- **On each wake:** call `architect_deploy_list_status` → `architect_deploy_list_failed` → spot-check the most-recent failures via `architect_deploy_get_machine_details` / `architect_deploy_log_query_raw`.
+- **Begin codifying root-cause fixes mid-deploy** when failures are unambiguous — don't wait for the redeploy to finish to start working. By the time it does, you can have YAML/param/vault changes ready and queued behind the Final Check gate.
+- **Stop wakeups** once the deploy is fully `applied` or fully `failed` and you have everything you need.
+
+Each wake should be a short, focused status pass — not a deep rabbit hole. Long investigations interleave fine with wakeups; idle waiting does not.
 
 ### Two-Plugin Debugging
 
@@ -163,7 +207,9 @@ If `project.json` has a `testScenario` outline with `buildStatus === "pending"` 
 
 If the user says yes, follow the **Build Test Scenario on Canvas** section in the brainstorm skill — same procedure: load `../../../rogue-build-scenario/refs/freeform-context.md`, discover architect tools, stage in Canvas → Domain → VLAN → Machine → Plugin order, set `buildStatus` to `"staged"` on success.
 
-If the user says no, set `buildStatus` to `"deferred"` and continue. Don't ask again on subsequent develop sessions unless the user re-opens the topic.
+**Before staging, enforce the Hard Gate (Hard Gates section above):** every project plugin in the outline must have its `pluginVersionId` set in `project.json` AND every declared param pushed to the platform via `plugin_dev_add_param`. If any plugin is missing these, walk the user through Platform Integration first (collect missing `pluginVersionId`s, push metadata, push every param). If the user wants to defer that work, set `buildStatus` to `"deferred"` and skip staging — don't half-stage with missing params.
+
+If the user says no to staging, set `buildStatus` to `"deferred"` and continue. Don't ask again on subsequent develop sessions unless the user re-opens the topic.
 
 ## Process Flow
 
@@ -176,12 +222,17 @@ digraph develop {
     "Tell user: run /rogue-plugin-dev:rogue-plugin-brainstorm" [shape=box];
     "Present project menu" [shape=box];
     "User picks plugin" [shape=box];
-    "Read current files" [shape=box];
+    "Read files + BUGS.md" [shape=box];
+    "MCP discovery (if pluginVersionId)" [shape=box];
+    "Offer retro-build test scenario" [shape=box];
     "Ask about lastUpdate" [shape=box];
     "User reports (log, error, next step)" [shape=box];
-    "Update files" [shape=box];
-    "Update project.json" [shape=box];
-    "Summarize changes" [shape=box];
+    "Update YAML / vault / params" [shape=box];
+    "Push via MCP" [shape=box];
+    "Update project.json + BUGS.md" [shape=box];
+    "Monitor in-flight redeploy via ScheduleWakeup" [shape=box];
+    "Pre-Redeploy Final Check Gate" [shape=diamond];
+    "Summarize, signal redeploy" [shape=box];
 
     "Read Ansible KB" -> "Resolve workspace";
     "Resolve workspace" -> "Scan projects directory";
@@ -189,13 +240,19 @@ digraph develop {
     "Projects exist?" -> "Tell user: run /rogue-plugin-dev:rogue-plugin-brainstorm" [label="no"];
     "Projects exist?" -> "Present project menu" [label="yes"];
     "Present project menu" -> "User picks plugin";
-    "User picks plugin" -> "Read current files";
-    "Read current files" -> "Ask about lastUpdate";
+    "User picks plugin" -> "Read files + BUGS.md";
+    "Read files + BUGS.md" -> "MCP discovery (if pluginVersionId)";
+    "MCP discovery (if pluginVersionId)" -> "Offer retro-build test scenario";
+    "Offer retro-build test scenario" -> "Ask about lastUpdate";
     "Ask about lastUpdate" -> "User reports (log, error, next step)";
-    "User reports (log, error, next step)" -> "Update files";
-    "Update files" -> "Update project.json";
-    "Update project.json" -> "Summarize changes";
-    "Summarize changes" -> "User reports (log, error, next step)" [label="repeat"];
+    "User reports (log, error, next step)" -> "Update YAML / vault / params";
+    "Update YAML / vault / params" -> "Push via MCP";
+    "Push via MCP" -> "Update project.json + BUGS.md";
+    "Update project.json + BUGS.md" -> "Pre-Redeploy Final Check Gate";
+    "Pre-Redeploy Final Check Gate" -> "Update YAML / vault / params" [label="check fails"];
+    "Pre-Redeploy Final Check Gate" -> "Summarize, signal redeploy" [label="all green"];
+    "Summarize, signal redeploy" -> "Monitor in-flight redeploy via ScheduleWakeup";
+    "Monitor in-flight redeploy via ScheduleWakeup" -> "User reports (log, error, next step)" [label="redeploy done / new failures"];
 }
 ```
 
@@ -284,11 +341,15 @@ Based on the user's report, update as needed:
 - **`for_plugin_vault/`** — add or update files (configs, scripts, templates)
 - **Download script** — add or update download commands
 
-### 3. AI updates project.json
+### 3. AI updates project.json and BUGS.md
 
 After every change:
 - Bump `status` if appropriate (see Status Transitions below)
 - Write a brief `lastUpdate` note summarizing what changed and what the user should do next
+- Touch `BUGS.md` if this iteration involved bugs (see `BUGS.md` — Open Bug Board below):
+  - New failure surfaced → add a new entry (`open`)
+  - Codified a fix → annotate the entry (`fix applied, awaiting redeploy validation`)
+  - Fresh redeploy validated a prior fix → delete the entry
 
 ### 4. AI summarizes
 
@@ -324,6 +385,48 @@ The download script runs on an **online machine** to fetch resources into `for_p
 
 ---
 
+## Addon Config Samples
+
+Some plugins ship a curated library of runtime config files alongside the plugin itself — JSON timelines for Ghosts, XML rules for Sysmon, YAML profiles for Caldera, etc. These are **Addon Config Samples**: named, annotated text blobs stored on the plugin version, discoverable through the platform catalog, and consumed by downstream Claude sessions that pick a sample, tweak it in memory, and seed it onto a target machine via the plugin's existing file-seeding parameter (typically a `stringBlock` param).
+
+**Local representation.** Sample bodies are large enough to deserve their own files — don't stuff them into `project.json`. Use this layout:
+
+```
+projects/<project>/<plugin>/
+  ansible_run.yml
+  for_plugin_vault/
+  .sample/
+    social-media-browsing.json
+    developer-workstation.json
+    ...
+```
+
+`project.json` carries the summary entry (`name`, `notes`, `language`, `sortOrder`, `sampleId` once pushed); `.sample/<name>.<ext>` carries the code body. Keep them in sync — same data split across two files for editor ergonomics.
+
+**Authoring a new sample (mid-develop):**
+1. Add an entry to `addonConfigSamples[]` in `project.json` with the next free `sortOrder`.
+2. Write the body to `.sample/<name>.<ext>` using the extension matching `language` (`.json`, `.py`, `.yml`, `.ps1`, `.sh`, `.cs`, `.txt`).
+3. If `pluginVersionId` is set, call `plugin_dev_add_addon_config_sample` with `pluginVersionId`, `name`, `notes`, `language`, `code` (the body), `sortOrder`. Save the returned `sampleId` back into the matching `project.json` entry.
+
+**Editing an existing sample:**
+1. Update `.sample/<name>.<ext>` and/or the `notes` / `language` / `sortOrder` in `project.json`.
+2. Call `plugin_dev_update_addon_config_sample` with `sampleId` plus only the changed fields.
+
+**Deleting samples:**
+1. Remove entries from `project.json` and delete the matching `.sample/` files.
+2. Call `plugin_dev_delete_addon_config_sample` with `sampleIds: [...]`. The platform auto-recompacts `sortOrder` for remaining samples — re-read state via `plugin_dev_get_version` and align `project.json`.
+
+**Reordering:** edit `sortOrder` on the affected entries in `project.json` and push individual `plugin_dev_update_addon_config_sample` calls with the new `sortOrder` values. The platform owns ordering; local order is informational.
+
+**Sample content rules:**
+- Realistic, deploy-ready content — not placeholder. A bad sample is worse than no sample because downstream sessions trust the catalog.
+- `notes` is the discovery surface — write it for a future Claude scanning the catalog: *when* to pick this sample, what end state it produces, what params on the consuming machine it assumes.
+- Samples are NOT parameters and NOT vault uploads. Installer binaries still go in `for_plugin_vault/` via `plugin_dev_upload_to_vault`; runtime knobs the lab author tunes are still params via `plugin_dev_add_param`.
+
+**Discovery side (for context).** Downstream sessions see `addonConfigSampleCount` on `architect_plugin_catalog_search`, full summaries (no code) on `architect_plugin_catalog_list_full`, and pull the body via `architect_plugin_catalog_get_addon_config_sample(sampleId)`. The plugin must expose a file-seeding param (typically `stringBlock`) for samples to actually land on a target machine — if this plugin ships samples but has no file-seeding param, surface that gap during develop so the user can add one.
+
+---
+
 ## Adding Plugins Mid-Development
 
 If the user needs a new plugin in an existing project:
@@ -352,10 +455,53 @@ researching → writing-yaml → testing → done
 
 - **researching → writing-yaml** — First real YAML content written (beyond scaffold header)
 - **writing-yaml → testing** — User says they're running builds against this YAML
-- **testing → done** — User confirms the plugin works correctly
+- **testing → done** — User confirms the plugin works correctly AND `BUGS.md` contains no open or awaiting-validation entries for this plugin. A fix isn't validated until a fresh full-canvas redeploy proves it; until then the plugin stays in `testing`.
 - **Any status can move backward** — if issues surface, drop back to the appropriate phase
 
 Always update `lastUpdate` when changing status.
+
+---
+
+## `BUGS.md` — Open Bug Board
+
+Every project gets a `BUGS.md` at its root. `lastUpdate` carries the narrative ("changed install command, waiting on build"); `BUGS.md` carries the **open issue board** — what's broken right now. The two are complementary, not redundant.
+
+**Location:** `{ROGUE_WORKSPACE}/plugin-dev/projects/<project>/BUGS.md` (one per project, not per plugin).
+
+**Lifecycle — Claude manages all three transitions:**
+
+1. **Add an entry** the moment a bug is discovered (build log surfaces a failure, live VM inspection reveals a config issue, user reports something wrong). Include:
+   - Symptom — what failed, where (machine, plugin, phase)
+   - Suspected root cause — best current hypothesis
+   - Status: `open`
+
+2. **Annotate the entry** when a fix is applied. Don't delete yet — the fix is unproven until a fresh redeploy validates it. Add:
+   - What changed and where (YAML task, vault file, param, canvas setting)
+   - Status: `fix applied, awaiting redeploy validation`
+
+3. **Delete the entry** ONLY after a fresh **full-canvas redeploy** validates the fix end-to-end. "It worked when I re-ran the script live" does NOT count — the codified, internet-off, deploy-from-scratch path must succeed. Until that happens, the entry stays.
+
+**Format:** loose markdown — one bullet or short block per bug. Don't over-engineer it. Newest entries at the top.
+
+```markdown
+# Open Bugs
+
+## [WS1 / wireguard-client] MSI install hangs without /qn
+- Symptom: ansible run hangs at "Install WireGuard MSI" task, no progress.
+- Suspected: silent install flag missing.
+- Status: fix applied, awaiting redeploy validation
+- Fix: added `/qn /norestart` to win_package args in ansible_run.yml (2026-05-27)
+
+## [DC1 / ghosts-server] Service not running after install
+- Symptom: ghosts.service inactive after plugin reports success.
+- Suspected: install puts binary in place but doesn't enable the unit.
+- Status: open
+```
+
+**Rules:**
+- The work loop touches `BUGS.md` on every iteration that involves bugs.
+- Empty file (just the heading) = a clean state. That's the goal.
+- Never delete an entry to "tidy up" — only redeploy validation justifies removal.
 
 ---
 
@@ -375,7 +521,9 @@ When **all plugins** in a project reach `done` status:
 
 **CRITICAL — Follow these rules:**
 
-- **Build ownership** — the user runs all builds, full deploys, snapshots, and Apply Plan. Claude's role is to edit files and summarize changes, then wait. Individual `architect_deploy_*` commands against already-deployed VMs are allowed for live fix-discovery and inspection.
+- **Build ownership** — the user clicks Apply Plan and triggers full redeploys through Architect. Claude's role is to edit local files, push state via MCP (YAML, params, vault, canvas drafts), summarize changes, and wait. Individual `architect_deploy_*` commands against already-deployed VMs are allowed for live fix-discovery and inspection. Snapshots / reverts are NOT available through `architect_deploy_*` at all — if a clean VM state is needed, the user must remove and redeploy through Architect.
+- **Live shell is for discovery, never patching.** `architect_deploy_run_script` / `architect_deploy_upload_file` / etc. exist to *figure out* the right install flag, config tweak, or file path on a running VM. The fix itself ALWAYS lands in `ansible_run.yml`, the plugin vault, params, or canvas state. Never finish a debug session with "I ran the fix on the VM, we're good" — the next redeploy wipes that VM clean and the bug returns. Every live finding gets codified before the Final Check gate signals redeploy.
+- **Redeploy is canvas-wide.** There is no single-machine redeploy. Apply Plan / remove-and-redeploy rebuilds every machine on the canvas. Don't suggest "redeploy just this one box" — it doesn't exist. Plan fixes knowing each redeploy is expensive.
 - **Always read current file state before editing** — no blind overwrites. Read the file first, then edit.
 - **Always update `project.json` `lastUpdate`** after making any changes to project files
 - **Reference the Ansible KB** when writing or editing YAML — especially module collections, privilege escalation, and validation patterns
@@ -397,6 +545,31 @@ After writing or editing any file, **re-read it immediately** to confirm:
 3. If the file is `project.json`, verify it parses as valid JSON
 
 Do not rely on a successful write call as proof the file is correct. Read it back every time.
+
+---
+
+## Pre-Redeploy Final Check Gate
+
+**Before signaling a redeploy** ("ready to redeploy", "remove the build and redeploy", or any equivalent), confirm each row below. Past sessions skipped this and shipped bugs straight into the next deploy — the gate exists to prevent that. Earning a redeploy is your job, not the user's.
+
+The gate is an assertion pass — it does NOT introduce new rules. Each row points back to the section where its rule was first declared. State the result of each row out loud before greenlighting:
+
+| # | Pre-redeploy assertion | Source rule |
+|---|------------------------|-------------|
+| 1 | Every live-discovered fix is reflected in `ansible_run.yml` — live execution alone does not count | Guardrails ("live shell is for discovery, never patching") |
+| 2 | Every new/modified file in `for_plugin_vault/` was uploaded via `plugin_dev_upload_to_vault` (confirmed via `plugin_dev_list_vault_files` if TUS completion was in doubt) | Platform Sync in Work Loop |
+| 3 | Every new/changed param exists in `project.json` AND was pushed via `plugin_dev_add_param` / `plugin_dev_update_param` / `plugin_dev_delete_param` | Platform Sync in Work Loop |
+| 4 | If `displayName`, `description`, or `pluginType` changed, `plugin_dev_update_metadata` was called | Platform Sync in Work Loop |
+| 4b | Every new/edited/deleted Addon Config Sample in `project.json` (and `.sample/`) was pushed via `plugin_dev_add_addon_config_sample` / `plugin_dev_update_addon_config_sample` / `plugin_dev_delete_addon_config_sample`; every entry has a non-empty `sampleId` | Platform Sync in Work Loop (Addon Config Samples rows) |
+| 5 | Every canvas-level change (machine config, plugin assignment, plugin param values, VLAN tweak) is staged as a draft via the appropriate `architect_*` tool | Hard Gates (plugin + params before canvas assignment) |
+| 6 | Every `BUGS.md` entry for a fix applied this round shows `fix applied, awaiting redeploy validation` with a note describing what changed and where | `BUGS.md` — Open Bug Board |
+| 7 | If `plugin_dev_set_compatible_templates` was narrowed this session, it was called with the right OS slice | Post-Build Assessment — Compatible Templates |
+
+Only after every row is a confirmed "yes" do you say:
+
+> "All fixes codified — vault synced, params synced, drafts staged, `BUGS.md` updated. Safe to remove the build and redeploy. I'll schedule a wakeup to monitor."
+
+If ANY row fails, fix it first. Do NOT ask the user to redeploy on an incomplete pass. If you can't complete a row (e.g., a TUS upload is still in flight), say so explicitly and either wait or schedule a wakeup before greenlighting.
 
 ---
 
@@ -428,6 +601,13 @@ Common develop-phase mistakes to watch for and avoid:
 
 The goal of every plugin is **fully offline install** — no `wget`/`curl` reaching the public internet at deploy time. Apt against the local mirror at `10.1.1.4` is the deploy-time exception: install Docker, system deps, language runtimes, etc. via Ansible's `apt:` module rather than vault-staging `.deb` files. All other resources (proprietary installers, container images, git repos, non-apt-available packages) must live in the plugin vault.
 
+**"Enable Internet During Architect Build" is transient build-time scaffolding, NOT a final state.** Read this carefully — it has tripped past sessions:
+
+- Internet-on exists for ONE purpose: to let Claude drive a live VM and pull resources into local `for_plugin_vault/` so they can be uploaded to the platform vault.
+- The deliverable is an **internet-off canvas** where every install completes using only platform vault contents plus the local apt mirror at `10.1.1.4`. That is the accepted state.
+- Never leave VMs internet-on as "good enough." Never declare a plugin done while internet-on is masking a missing vault resource. Final validation always happens with internet OFF on a fresh redeploy.
+- If you find yourself thinking "the plugin works, the user can just leave internet on" — stop. That is a failed plugin, not a finished one.
+
 If your plugin needs to download installers, packages, or container images that you can't get locally, drive a real VM to fetch them. The flow:
 
 ### 1. Configure plugins fully, then enable internet on the build VM(s)
@@ -458,7 +638,7 @@ Once you have the artifacts locally under `for_plugin_vault/`, use `plugin_dev_u
 
 ### 4. Verify offline path
 
-**Ask the user** to disable internet on the test machine and re-deploy (or revert the test machine to a clean snapshot). Re-run the plugin against the now-isolated VM. Confirm install completes using only vault-served resources plus the local apt mirror at `10.1.1.4`. If apt/yum reaches out to the **public** internet at any point — or if any `wget`/`curl`/`Invoke-WebRequest` call hits a public host — the plugin isn't done. (Apt traffic to `10.1.1.4` is the success state, not a failure.)
+**Ask the user** to disable internet on the test machine and trigger a clean redeploy through Architect (since `architect_deploy_*` has no snapshot/revert — see the Live Deployment Debugging section). Re-run the plugin against the now-isolated VM. Confirm install completes using only vault-served resources plus the local apt mirror at `10.1.1.4`. If apt/yum reaches out to the **public** internet at any point — or if any `wget`/`curl`/`Invoke-WebRequest` call hits a public host — the plugin isn't done. (Apt traffic to `10.1.1.4` is the success state, not a failure.)
 
 ### 5. Finalize
 

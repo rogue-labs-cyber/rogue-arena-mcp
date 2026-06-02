@@ -145,6 +145,7 @@ Execute in this order, following the JIT-loaded ref doc for each step:
 - Follow DC-first ordering (DCs → servers → workstations)
 - For each machine: create machine, add plugins, set params, assign users
 - Follow LAW 1 (catalog before params), LAW 2 (full bpData), LAW 3 (completeness verification)
+- LAW 1.5 (Addon Config Samples first): when `architect_plugin_catalog_list_full` returns a plugin version with `addonConfigSampleCount > 0`, scan the `addonConfigSamples[{ sampleId, name, notes, language }]` summaries in the same response BEFORE authoring runtime config content from scratch. The `notes` field is the match key — pick the sample whose notes align with the machine's character/role/story, fetch via `architect_plugin_catalog_get_addon_config_sample(sampleId)`, tweak in memory (SAMs, hostnames, file paths), and pass into the plugin's `stringBlock` param via `_set_params`. Authoring config from scratch when a working sample matches is a silent regression.
 - Idempotency: check `architect_machine_list` before creating — skip if exists
 
 ### B.5: Run Enrichment

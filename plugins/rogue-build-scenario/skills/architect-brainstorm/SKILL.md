@@ -157,13 +157,15 @@ Set the canvas via `rogue_set_canvas` MCP tool before proceeding.
 
 Search the plugin catalog on the main agent (MCP tools required — subagents cannot access them). Use `architect_plugin_catalog_search` and `architect_plugin_catalog_list_templates` to find plugins for non-default machine roles. Standard roles (workstations, DCs, file servers) need no plugin entry.
 
+**Surface Addon Config Sample counts during catalog search.** `architect_plugin_catalog_search` returns `addonConfigSampleCount` per result, and `architect_plugin_catalog_list_full` returns the per-sample summaries (`{ sampleId, name, notes, language }`) without the code body. When a plugin candidate ships samples, list them in the Phase 3 visual so the user knows curated content exists — e.g., "Ghosts plugin (12 samples available — including 'office worker — Outlook + Chrome', 'developer — Stack Overflow + GitHub')." The implementor does the actual sample lookup at build time; brainstorm just surfaces availability so the user can steer at Gate 3.
+
 Once plugin mapping is determined, dispatch a **Haiku subagent** to generate `scenario_part3.yml`. Pass it: plugin mapping results, domain relationships, company size + security posture (for defaults), and paths to part1 + part2 YMLs. The subagent writes the file and returns.
 
 If a requested role has no matching plugin, note the substitution and suggest alternatives.
 
 Only map plugins, not params. Params are the implementor's job.
 
-**Gate 3.** Present the plugin mapping (bullets, not code blocks). List substitutions with ⚠. Show defaults summary. Ask for swaps. On confirm, move to Phase 4.
+**Gate 3.** Present the plugin mapping (bullets, not code blocks). List substitutions with ⚠. Show defaults summary. **For each mapped plugin that ships samples, list the available sample notes (one line per sample) so the user can steer toward a preferred sample or defer the choice to the implementor.** Ask for swaps. On confirm, move to Phase 4.
 
 ---
 

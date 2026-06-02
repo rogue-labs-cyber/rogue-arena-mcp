@@ -69,6 +69,20 @@ Oracle: "I'm Rogue Oracle, powered by Claude. What do you need?"
 
 You are an expert Ansible developer brainstorming new plugin projects for Rogue Arena. You research offline installation approaches via web search, break projects into plugins, and scaffold local project files under `{ROGUE_WORKSPACE}/plugin-dev/`. You do NOT write Ansible YAML — that's the develop skill's job.
 
+## Where Brainstorm Sits In The Cycle
+
+Brainstorm is step 1 of an iterative deploy-debug-fix cycle that lives mostly in the develop skill. Scaffolding a clean project here does NOT mean the work is close to done — once develop starts, the real shape is:
+
+```
+deploy canvas → bugs surface → debug live on VM → fix root cause → user redeploys → repeat
+```
+
+Set the user's expectation accordingly: brainstorm gets the plan, the parameters, and the test scenario right *before* the cycle begins, so develop has stable ground to iterate on. Three constraints to internalize now (they govern every later session):
+
+1. **Redeploy is canvas-wide.** No single-machine redeploys exist — every time the user removes the build and clicks Apply Plan, every machine on the canvas is rebuilt. That makes redeploys expensive and makes a complete, accurate plan up front valuable.
+2. **The deliverable is fully offline.** Final state has no internet on the VMs; everything installs from the plugin's vault (resources baked into the plugin) plus the local apt mirror at `10.1.1.4`. The "Enable Internet During Architect Build" toggle exists only as transient scaffolding during develop — Claude uses it to drive a live VM and pull resources back into the vault — never as a final state.
+3. **Plugins + params must exist on the platform before the canvas can be built.** A "plugin shell" is a plugin record created in Rogue Arena's UI; it gets a `pluginVersionId` once created. Even with a scaffold-only YAML body, the shell needs to exist AND every declared param has to be pushed to that shell via the platform's MCP tool `plugin_dev_add_param` before the canvas's `architect_assigned_plugin_add` can parameterize it. Plan parameters thoroughly here so the platform integration step has everything it needs.
+
 ## Workspace Resolution
 
 Before any filesystem operations, resolve the Rogue Labs workspace path:
@@ -113,7 +127,7 @@ You MUST create a task for each of these items and complete them in order:
 8. **Test scenario outline** — propose a minimal canvas (domain/VLAN/machine/plugin loadout) needed to exercise these plugins; cross-check required platform plugins exist in the catalog
 9. **Confirm full plan** with user (plugins + test scenario)
 10. **Scaffold** project folder and all files
-10.5. **Collect platform IDs** (optional) — plugin version IDs (push desc/type via `plugin_dev_update_metadata`) and canvas ID
+10.5. **Collect platform IDs** (optional, but required before canvas build in step 10.6) — plugin version IDs (push desc/type via `plugin_dev_update_metadata` AND every declared param via `plugin_dev_add_param`) and canvas ID
 10.6. **Build test scenario on canvas** (optional, requires canvas ID) — stage drafts via architect tools
 11. **Handoff** to `/rogue-plugin-dev:rogue-plugin-develop`
 
@@ -130,9 +144,11 @@ digraph brainstorm {
     "Propose plugin breakdown" [shape=box];
     "Propose test scenario outline" [shape=box];
     "User confirms plan?" [shape=diamond];
-    "Scaffold project files" [shape=box];
-    "Platform integration (optional)" [shape=box];
-    "Build test scenario on canvas (optional)" [shape=box];
+    "Scaffold project files (incl. BUGS.md)" [shape=box];
+    "Platform integration (optional; required before canvas build)" [shape=box];
+    "Canvas build requested?" [shape=diamond];
+    "Build test scenario on canvas" [shape=box];
+    "Monitor first Apply Plan via ScheduleWakeup" [shape=box];
     "Handoff to /rogue-plugin-dev:rogue-plugin-develop" [shape=doublecircle];
 
     "Read Ansible KB" -> "Resolve workspace";
@@ -144,10 +160,13 @@ digraph brainstorm {
     "Propose plugin breakdown" -> "Propose test scenario outline";
     "Propose test scenario outline" -> "User confirms plan?";
     "User confirms plan?" -> "Propose plugin breakdown" [label="no, revise"];
-    "User confirms plan?" -> "Scaffold project files" [label="yes"];
-    "Scaffold project files" -> "Platform integration (optional)";
-    "Platform integration (optional)" -> "Build test scenario on canvas (optional)";
-    "Build test scenario on canvas (optional)" -> "Handoff to /rogue-plugin-dev:rogue-plugin-develop";
+    "User confirms plan?" -> "Scaffold project files (incl. BUGS.md)" [label="yes"];
+    "Scaffold project files (incl. BUGS.md)" -> "Platform integration (optional; required before canvas build)";
+    "Platform integration (optional; required before canvas build)" -> "Canvas build requested?";
+    "Canvas build requested?" -> "Build test scenario on canvas" [label="yes (params pushed)"];
+    "Canvas build requested?" -> "Handoff to /rogue-plugin-dev:rogue-plugin-develop" [label="no (deferred)"];
+    "Build test scenario on canvas" -> "Monitor first Apply Plan via ScheduleWakeup";
+    "Monitor first Apply Plan via ScheduleWakeup" -> "Handoff to /rogue-plugin-dev:rogue-plugin-develop";
 }
 ```
 
@@ -258,6 +277,22 @@ Propose one of these types per plugin based on what it does. The user can overri
 `fileCopy` and `automatedPluginDev` exist in the platform but are not produced by this brainstorm flow — skip them.
 
 If you can't tell from the intake, default to `application` and call it out so the user can correct.
+
+### Addon Config Samples (curated runtime config library)
+
+A plugin can ship a curated library of **Addon Config Samples** — named, annotated text blobs (JSON / Python / YAML / PowerShell / Bash / C# / plaintext) that are ready-to-deploy runtime configurations for the thing the plugin installs. They are NOT plugin parameters and NOT vault file uploads — they are first-class catalog content that downstream Claude sessions discover via `architect_plugin_catalog_*` and seed onto a target machine through one of the plugin's existing file-seeding parameters (typically a `stringBlock` param).
+
+Use samples when the plugin installs a tool driven by a runtime config file with many proven variants (e.g., Ghosts JSON timelines for simulated user activity, Sysmon XML configs, Caldera adversary profiles, BloodHound queries, Suricata rule packs).
+
+Do NOT use samples for configurable inputs the user must set per run (those are parameters), binary installers / MSIs / ZIPs (those go in `for_plugin_vault/`), or one-shot tweaks the plugin always applies the same way (bake those into the YAML).
+
+**During brainstorm**, ask this only when sample-shaped configs are clearly part of the plugin's value:
+
+> "Does this tool ship with — or get most of its value from — a library of pre-built runtime config files (timelines, rule sets, adversary profiles, query packs)? If yes, list 1-N initial samples by name + one-line purpose; we'll persist them and the develop skill will fill in the code."
+
+For each proposed sample, capture: `name`, `notes` (one-line purpose / when to pick this one — this is the discovery surface downstream sessions read), `language` (`json` / `python` / `yaml` / `powershell` / `bash` / `csharp` / `plaintext`), `sortOrder` (1-based; lower = higher in the FE list). Leave `code` empty during brainstorm — develop fills it in.
+
+Persist samples on the matching plugin in `project.json` under an `addonConfigSamples` array (see Scaffold below). They push to the platform during Platform Integration alongside params.
 
 ---
 
@@ -452,13 +487,33 @@ Check if `{ROGUE_WORKSPACE}/plugin-dev/projects/<project-name>/` already exists.
           "description": "List of users to create",
           "sampleCSV": "username,role,department\njsmith,analyst,SOC\nmjones,admin,IT\nagarcia,engineer,DevOps\nklee,intern,Security"
         }
+      ],
+      "addonConfigSamples": [
+        {
+          "name": "social-media-browsing",
+          "notes": "Office-worker baseline: Chrome, LinkedIn, Twitter, lunchtime news.",
+          "language": "json",
+          "sortOrder": 1,
+          "sampleId": null,
+          "code": ""
+        },
+        {
+          "name": "developer-workstation",
+          "notes": "Engineer profile: VS Code, Git pulls, Stack Overflow, Slack.",
+          "language": "json",
+          "sortOrder": 2,
+          "sampleId": null,
+          "code": ""
+        }
       ]
     }
   ]
 }
 ```
 
-All fields are required. All plugins start in `researching` status. Every plugin MUST have `displayName`, `description`, `pluginType`, and `parameters` filled in during brainstorm — these are required for publishing.
+All fields are required EXCEPT `addonConfigSamples`, which is optional and only present when the plugin ships a curated runtime config library (see Plugin Breakdown → Addon Config Samples). When present, every sample needs `name`, `notes`, `language`, `sortOrder`; `code` may be empty at scaffold and is filled in during develop. `sampleId` starts null and is set after Platform Integration pushes the sample.
+
+All plugins start in `researching` status. Every plugin MUST have `displayName`, `description`, `pluginType`, and `parameters` filled in during brainstorm — these are required for publishing.
 
 `pluginType` must be one of: `action`, `role`, `application`, `vulnerability`, `attack`, `defense` (see Plugin Type Selection above).
 
@@ -467,6 +522,24 @@ All fields are required. All plugins start in `researching` status. Every plugin
 **Parameter types:** `string`, `number`, `boolean`, `stringBlock`, `csv`
 
 **CSV parameters** MUST include a `sampleCSV` field with headers + 4-6 realistic rows (newline-separated in the JSON string). The sample data should look like real-world values, not placeholder text.
+
+### 3.5. Create `BUGS.md` (open bug board)
+
+Create an empty `BUGS.md` at the project root:
+
+```markdown
+# Open Bugs
+
+_No open bugs._
+```
+
+`BUGS.md` is the project's open-bug board, owned by the develop skill from this point forward. The lifecycle develop enforces:
+
+1. New failure surfaces → add an entry (symptom, suspected cause, machine/plugin, status `open`)
+2. Fix applied → annotate the entry (what changed, where; status `fix applied, awaiting redeploy validation`)
+3. Fresh full-canvas redeploy proves the fix end-to-end → delete the entry
+
+`lastUpdate` in `project.json` carries the narrative ("changed install command, waiting on build"); `BUGS.md` carries the open-issue board (what's actually broken right now). Scaffolding it empty here means develop has somewhere to write from session one.
 
 ### 4. Create per-plugin files
 
@@ -542,14 +615,15 @@ After writing all files, re-read `project.json` from disk and confirm:
 3. Every plugin has `displayName`, `description`, `pluginType`, `parameters`, and `targetOS` populated
 4. Every CSV parameter has a `sampleCSV` field with headers + rows
 5. `testScenario.buildStatus` is `"pending"` and the outline matches what the user confirmed
+6. `BUGS.md` exists at the project root with the empty-state template
 
 If ANY check fails, fix before proceeding to handoff.
 
 ---
 
-## Platform Integration (Optional)
+## Platform Integration (Optional — but required before canvas build)
 
-After scaffolding, offer to connect the project to the Rogue Arena platform. This step is optional — the user can skip it and add IDs later via the develop skill.
+After scaffolding, offer to connect the project to the Rogue Arena platform. This step is optional **for handoff to develop** — the user can skip it and add IDs later via the develop skill — but it is **effectively required** if the user wants to build the test scenario on a canvas in this session (next section). Canvas plugin assignment depends on `pluginVersionId` + a full param schema existing on the platform; without those, `architect_assigned_plugin_add` cannot parameterize the plugin and staging is blocked.
 
 ### Collect Plugin Version IDs
 
@@ -589,10 +663,12 @@ Then:
 3. For each ID:
    - Call `plugin_dev_get_version` to validate the ID and retrieve the `vaultId`.
    - Call `plugin_dev_update_metadata` with `pluginVersionId`, `description`, and `type` to push the metadata. (Skip `name` — the user already set it in the UI.)
+   - **Push every declared param via `plugin_dev_add_param`.** Walk the plugin's `parameters` array in `project.json` and create each one on the platform — `name`, `type`, `required`, `description`, `defaultValue` (if present), `sampleCSV` (for csv params). This MUST happen now if there's any chance the canvas test scenario will be staged later in this session, because `architect_assigned_plugin_add` cannot parameterize a plugin whose params don't exist on the platform yet.
+   - **Push every Addon Config Sample via `plugin_dev_add_addon_config_sample`** (only if `addonConfigSamples` is present on the plugin). Walk the array in order — `pluginVersionId`, `name`, `notes`, `language`, `code` (empty string is fine at this stage; develop fills it in), `sortOrder`. Save each returned `sampleId` back to the matching entry in `project.json`. Samples push regardless of whether canvas staging happens this session — downstream scenario sessions discover them via the catalog as soon as they exist.
    - Save `pluginVersionId` and `vaultId` to the matching plugin entry in `project.json`.
-4. Confirm to the user: "Pushed metadata for <N> plugin(s). Description and type are set on the platform — refresh the UI to see them."
+4. Confirm to the user: "Pushed metadata + params for <N> plugin(s). Description, type, and parameter schema are set on the platform — refresh the UI to see them."
 
-This whole step is optional — if the user wants to skip platform integration, move on to handoff. The develop skill's hard gate will collect the IDs later if/when sync is needed.
+This whole step is optional — if the user wants to skip platform integration, move on to handoff. The develop skill's hard gate will collect the IDs later if/when sync is needed. **But:** if the user wants to stage the test scenario on a canvas later in this session, this step is effectively required, because canvas plugin assignment depends on platform params existing.
 
 ### Collect Canvas Version ID
 
@@ -613,6 +689,8 @@ Triggered only when **both** are true:
 - `canvasVersionId` is now set (just collected above)
 
 If the user skipped the canvas ID, skip this whole section — develop will offer to build the scenario later when a canvas ID arrives.
+
+**Hard prerequisite:** every project plugin that will be assigned to a machine MUST have its `pluginVersionId` set in `project.json` AND its full param schema pushed to the platform via `plugin_dev_add_param` (handled in Platform Integration above). Without platform params, `architect_assigned_plugin_add` cannot parameterize the plugin and the canvas build is blocked. If platform integration was skipped, do NOT attempt to build the test scenario — tell the user the build needs platform integration first, set `testScenario.buildStatus` to `"deferred"`, and continue to handoff.
 
 ### Ask before building
 
@@ -650,6 +728,13 @@ After all drafts are staged:
 1. Set `testScenario.buildStatus` to `"staged"` in `project.json`.
 2. Tell the user:
    > "Staged <N> machine(s) across <M> VLAN(s) as drafts on canvas <canvasVersionId>. Click Apply Plan to deploy the canvas. After it's live, run `/rogue-plugin-dev:rogue-plugin-develop` to start writing YAML — develop will tell you when to enable internet on specific machines (after plugin YAML and params are configured, not before)."
+3. **If the user clicks Apply Plan in this same session**, the canvas deploy will run for minutes to tens of minutes. Use `ScheduleWakeup` to monitor rather than blocking. Cadence:
+   - **Default 600s (10 min)** — good for the bulk of a deploy when nothing's imminent.
+   - **180s (3 min)** when something specific is imminent — a tricky plugin about to run, a fix you want to verify ASAP.
+   - **On each wake** call `architect_deploy_list_status` → `architect_deploy_list_failed`; spot-check the most-recent failures via `architect_deploy_get_machine_details` / `architect_deploy_log_query_raw` if needed.
+   - **Stop wakeups** once the deploy is fully `applied` or fully `failed` and you have everything you need.
+
+   This is the same pattern develop uses on every iteration redeploy — set the habit here on the first Apply Plan.
 
 If anything fails mid-build (a catalog plugin not found, a tool error), stop, leave `buildStatus` at `"pending"`, and report what failed so the user can decide whether to retry, edit the outline, or skip.
 
@@ -664,6 +749,7 @@ Project scaffolded at: {ROGUE_WORKSPACE}/plugin-dev/projects/<project-name>/
 
 Files created:
   - project.json
+  - BUGS.md (empty — develop will write to it as bugs surface)
   - <plugin-name>/ansible_run.yml (or ansible_run.yml for single-plugin)
   - <plugin-name>/for_plugin_vault/
   - <plugin-name>/download-resources.sh

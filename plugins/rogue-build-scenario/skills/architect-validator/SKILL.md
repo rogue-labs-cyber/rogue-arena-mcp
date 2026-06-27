@@ -12,14 +12,14 @@ Validate a completed scenario (`scenario_part1.yml`, `_part2.yml`, `_part3.yml`,
 ## Invocation
 
 - **Auto:** invoked at end of Phase 4 by `architect-brainstorm` with the scenario directory path.
-- **Standalone:** invoked via `Skill("rogue-build-scenario:architect-validator")` with a scenario directory path argument. Useful for verifying hand-edited YML or re-validating after manual canvas changes.
+- **Standalone:** invoked via `Skill("rogue-build-scenario:architect-validator")` (in Codex: invoke the `architect-validator` skill) with a scenario directory path argument. Useful for verifying hand-edited YML or re-validating after manual canvas changes.
 
 ## Required load
 
-Before running any check, Glob for and read:
-- `**/rogue-build-scenario/refs/exploit-design.md`
-- `**/rogue-build-scenario/refs/escape-hatch-plugins.md`
-- `**/rogue-build-scenario/refs/scenario-schema.md`
+Before running any check, read:
+- `refs/exploit-design.md`
+- `refs/escape-hatch-plugins.md`
+- `refs/scenario-schema.md`
 
 `exploit-design.md` defines invariant semantics. `escape-hatch-plugins.md` holds the 5-source query order + cap formula. `scenario-schema.md` is the AUTHORITATIVE source for field names — when inline field references in this skill disagree with the schema, the schema wins.
 
@@ -126,7 +126,7 @@ Override detection: if an escape-hatch hop has `escapeHatchOverride` set, count 
 Ready to hand off to architect-implementor?
 ```
 
-One-line summary per group, not a wall of green checkmarks. User confirms → invoke `Skill("rogue-build-scenario:architect-implementor")` with the scenario directory path.
+One-line summary per group, not a wall of green checkmarks. User confirms → invoke `Skill("rogue-build-scenario:architect-implementor")` (in Codex: invoke the `architect-implementor` skill) with the scenario directory path.
 
 ### On fail
 

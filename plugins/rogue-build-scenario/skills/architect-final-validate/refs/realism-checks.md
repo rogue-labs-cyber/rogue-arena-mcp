@@ -21,7 +21,7 @@ When in doubt, ask: "Would a real company of this size and type have this?"
 ## Seven Finding Categories
 
 ### 1. user_population
-User count vs stated company size. See [shared-rules.md § Company Size Limits](../../../refs/shared-rules.md#company-size-limits) for the authoritative per-tier user and machine ranges. Flag if DC has 5 users but scenario says "medium company."
+User count vs stated company size. See [shared-rules.md § Company Size Limits](shared-rules.md#company-size-limits) for the authoritative per-tier user and machine ranges. Flag if DC has 5 users but scenario says "medium company."
 
 ### 2. file_services
 File share completeness and organization. Real file servers have multiple shares: Shared (company-wide), department folders (HR, Finance, Engineering), user home directories, IT/Admin tools share, possibly Archives, Projects, Templates. Flag if file server has only 1-2 shares.
@@ -44,7 +44,7 @@ When flagging, surface the seeding-context hints inline so the user knows *what*
 This sub-check applies only to logged-in user machines. Servers, DCs, and machines without active user assignments are exempt.
 
 ### 3. industry_infrastructure
-Industry-specific systems and applications. See [shared-rules.md § Industry-Specific Infrastructure](../../../refs/shared-rules.md#industry-specific-infrastructure) for the expected systems per industry. Flag if "Healthcare company" has no clinical systems.
+Industry-specific systems and applications. See [shared-rules.md § Industry-Specific Infrastructure](shared-rules.md#industry-specific-infrastructure) for the expected systems per industry. Flag if "Healthcare company" has no clinical systems.
 
 ### 4. ad_structure
 OU layout, groups, service accounts. OUs reflect real departments (not just "Users" and "Computers"). Group structure has role-based groups (not just "Domain Users"). Service accounts for each major application. Nested groups for delegated permissions. Flag if all users are in a single OU with no security groups defined.

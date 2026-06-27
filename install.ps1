@@ -12,21 +12,21 @@ Write-Host "  Rogue Arena MCP Server Installer"
 Write-Host "  ================================="
 Write-Host ""
 
-# ── Helper: prompt y/n ──────────────────────────────────────────────
+# -- Helper: prompt y/n ----------------------------------------------
 function Confirm-Action {
     param([string]$Message)
     $answer = Read-Host "  $Message [y/N]"
     return ($answer -match '^[yY]')
 }
 
-# ── Helper: refresh PATH ────────────────────────────────────────────
+# -- Helper: refresh PATH --------------------------------------------
 function Refresh-Path {
     $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     $env:Path = "$machinePath;$userPath"
 }
 
-# ── Check for git ───────────────────────────────────────────────────
+# -- Check for git ---------------------------------------------------
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     Write-Host "  git is not installed."
     if (Confirm-Action "Download and install Git for Windows?") {
@@ -50,7 +50,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     }
 }
 
-# ── Check for Node.js ──────────────────────────────────────────────
+# -- Check for Node.js ----------------------------------------------
 $needNode = $false
 $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
 if (-not $nodeCmd) {
@@ -88,27 +88,36 @@ Write-Host "  Node.js v$nodeVer found."
 Write-Host "  git found."
 Write-Host ""
 
-# ── Clone or update the repo ────────────────────────────────────────
-# Self-heals if upstream history was rewritten: a fast-forward pull fails,
-# fall through to a clean re-clone.
-if (Test-Path $InstallDir) {
-    Write-Host "  Updating existing installation..."
+# -- Obtain the source -----------------------------------------------
+# ROGUE_LOCAL_SRC lets a developer install from a local working copy
+# (e.g. one uploaded to a test VM) instead of cloning from GitHub. When
+# set, the clone/update is skipped and the build runs against that dir.
+if ($env:ROGUE_LOCAL_SRC) {
+    $InstallDir = $env:ROGUE_LOCAL_SRC
+    Write-Host "  Using local source (ROGUE_LOCAL_SRC): $InstallDir"
     Push-Location $InstallDir
-    git pull --quiet --ff-only 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  Upstream history changed — re-cloning fresh..."
-        Pop-Location
-        Remove-Item -Recurse -Force $InstallDir
+} else {
+    # Self-heals if upstream history was rewritten: a fast-forward pull fails,
+    # fall through to a clean re-clone.
+    if (Test-Path $InstallDir) {
+        Write-Host "  Updating existing installation..."
+        Push-Location $InstallDir
+        git pull --quiet --ff-only 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  Upstream history changed - re-cloning fresh..."
+            Pop-Location
+            Remove-Item -Recurse -Force $InstallDir
+            git clone --quiet $RepoUrl $InstallDir
+            Push-Location $InstallDir
+        }
+    } else {
+        Write-Host "  Cloning rogue-arena-mcp..."
         git clone --quiet $RepoUrl $InstallDir
         Push-Location $InstallDir
     }
-} else {
-    Write-Host "  Cloning rogue-arena-mcp..."
-    git clone --quiet $RepoUrl $InstallDir
-    Push-Location $InstallDir
 }
 
-# ── Build the MCP server ────────────────────────────────────────────
+# -- Build the MCP server --------------------------------------------
 Write-Host "  Installing dependencies..."
 npm install --silent 2>$null
 
@@ -123,7 +132,7 @@ npm install -g . --silent 2>$null
 
 Pop-Location
 
-# ── Verify CLI installed ────────────────────────────────────────────
+# -- Verify CLI installed --------------------------------------------
 Refresh-Path
 if (-not (Get-Command rogue-mcp -ErrorAction SilentlyContinue)) {
     Write-Host ""
@@ -132,70 +141,111 @@ if (-not (Get-Command rogue-mcp -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# ── Check for Claude Code ───────────────────────────────────────────
-if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
-    Write-Host "  Claude Code CLI not found."
-    if (Confirm-Action "Install Claude Code via npm?") {
-        npm install -g @anthropic-ai/claude-code 2>$null
-        Refresh-Path
+# -- Detect target agent CLI(s): Claude Code and/or OpenAI Codex -----
+# Register into whichever agent CLI is installed. We do NOT auto-install
+# an agent - if neither is present, fail loud with hints.
+$HaveClaude = [bool](Get-Command claude -ErrorAction SilentlyContinue)
+$HaveCodex  = [bool](Get-Command codex  -ErrorAction SilentlyContinue)
+
+if (-not $HaveClaude -and -not $HaveCodex) {
+    Write-Host ""
+    Write-Host "  No supported agent CLI found on PATH."
+    Write-Host "  Rogue Arena MCP plugs into Claude Code or OpenAI Codex."
+    Write-Host "  Install one, then re-run this installer:"
+    Write-Host "    Claude Code:   npm install -g @anthropic-ai/claude-code"
+    Write-Host "    OpenAI Codex:  npm install -g @openai/codex"
+    exit 1
+}
+
+$Plugins = @("rogue-build-scenario", "rogue-plugin-dev", "rogue-curriculum-builder", "rogue-active-deployment", "rogue-auto-update")
+$CodexSkillCount = 0
+
+# -- Claude Code: marketplace plugins + user-scope MCP server --------
+if ($HaveClaude) {
+    Write-Host "  Claude Code CLI found - registering for Claude Code..."
+
+    # Add marketplace (idempotent - ignore error if already registered)
+    & claude plugin marketplace add $RepoUrl 2>$null | Out-Null
+    # Refresh the marketplace clone so plugin install doesn't read stale files.
+    & claude plugin marketplace update rogue-arena 2>$null | Out-Null
+    # Clear stale plugin cache so renamed/deleted skills don't linger.
+    $CacheDir = Join-Path $env:USERPROFILE ".claude\plugins\cache\rogue-arena"
+    if (Test-Path $CacheDir) { Remove-Item -Recurse -Force $CacheDir }
+    foreach ($plugin in $Plugins) {
+        & claude plugin install "${plugin}@rogue-arena" | Out-Null
+        Write-Host "    Installed plugin: $plugin"
+    }
+
+    # Clean up legacy state from older installer versions
+    $LegacyMcpFile = Join-Path $env:USERPROFILE ".claude\mcpjson.d\rogue-arena.json"
+    if (Test-Path $LegacyMcpFile) { Remove-Item $LegacyMcpFile -Force }
+
+    # Register the MCP server (idempotent - remove any existing entry first)
+    claude mcp remove --scope user rogue-arena 2>$null | Out-Null
+    claude mcp add --scope user rogue-arena -- rogue-mcp serve
+    Write-Host "  Claude Code: MCP server configured."
+}
+
+# -- OpenAI Codex: register the MCP server + copy skills -------------
+if ($HaveCodex) {
+    Write-Host "  Codex CLI found - registering for Codex..."
+    # codex mcp add does a safe non-destructive merge into ~/.codex/config.toml.
+    codex mcp remove rogue-arena 2>$null | Out-Null
+    codex mcp add rogue-arena -- rogue-mcp serve
+    Write-Host "  Codex: MCP server registered."
+
+    # Skills: Codex has no plugin marketplace step here, so copy the skill
+    # folders into ~/.codex/skills (global - Codex discovers them at startup).
+    $CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
+    $CodexSkills = Join-Path $CodexHome "skills"
+    $PluginsDir = Join-Path $InstallDir "plugins"
+    if (Test-Path $PluginsDir) {
+        New-Item -ItemType Directory -Force -Path $CodexSkills | Out-Null
+        foreach ($pluginDir in Get-ChildItem -Path $PluginsDir -Directory) {
+            $skillsRoot = Join-Path $pluginDir.FullName "skills"
+            if (Test-Path $skillsRoot) {
+                foreach ($skillDir in Get-ChildItem -Path $skillsRoot -Directory) {
+                    if (Test-Path (Join-Path $skillDir.FullName "SKILL.md")) {
+                        $dest = Join-Path $CodexSkills $skillDir.Name
+                        # Refresh our skill (idempotent); leave other Codex skills alone.
+                        if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+                        Copy-Item -Recurse -Force $skillDir.FullName $dest
+                        # Co-locate the plugin's shared refs (refs/, reference/) so
+                        # skill-relative "refs/..." paths resolve in Codex's flat layout.
+                        foreach ($shared in @('refs','reference')) {
+                            $sharedSrc = Join-Path $pluginDir.FullName $shared
+                            if (Test-Path $sharedSrc) {
+                                $sharedDest = Join-Path $dest $shared
+                                New-Item -ItemType Directory -Force -Path $sharedDest | Out-Null
+                                Copy-Item -Recurse -Force (Join-Path $sharedSrc '*') $sharedDest
+                            }
+                        }
+                        Write-Host "    Installed skill: $($skillDir.Name)"
+                        $CodexSkillCount++
+                    }
+                }
+            }
+        }
+        Write-Host "  Codex: $CodexSkillCount skill(s) installed to $CodexSkills"
     } else {
-        Write-Host "  Claude Code is required. Install it and re-run this script."
-        exit 1
+        Write-Host "  Codex: no plugins/ dir in source - skipping skill copy."
     }
 }
 
-Write-Host "  Claude Code CLI found."
-
-# ── Register plugins via Claude Code's marketplace flow ─────────────
-Write-Host "  Registering Rogue Arena plugins..."
-
-$Plugins = @("rogue-build-scenario", "rogue-plugin-dev", "rogue-curriculum-builder", "rogue-active-deployment", "rogue-auto-update")
-$pluginCount = $Plugins.Count
-
-# Add marketplace (idempotent — ignore error if already registered)
-& claude plugin marketplace add $RepoUrl 2>$null | Out-Null
-
-# Refresh marketplace's internal clone. Without this, claude plugin install
-# reads stale files after an upstream force-push or normal update.
-& claude plugin marketplace update rogue-arena 2>$null | Out-Null
-
-# Clear stale plugin cache so renamed/deleted skills don't linger.
-$CacheDir = Join-Path $env:USERPROFILE ".claude\plugins\cache\rogue-arena"
-if (Test-Path $CacheDir) {
-    Remove-Item -Recurse -Force $CacheDir
-}
-
-# Install each plugin
-foreach ($plugin in $Plugins) {
-    & claude plugin install "${plugin}@rogue-arena" | Out-Null
-    Write-Host "    Installed: $plugin"
-}
-
-# ── Clean up legacy state from older installer versions ─────────────
-$ClaudeDir = Join-Path $env:USERPROFILE ".claude"
-$LegacyMcpFile = Join-Path $ClaudeDir "mcpjson.d\rogue-arena.json"
-if (Test-Path $LegacyMcpFile) {
-    Remove-Item $LegacyMcpFile -Force
-}
-
-# ── Configure MCP server ────────────────────────────────────────────
-# Remove any existing rogue-arena entry before re-adding (idempotent)
-claude mcp remove --scope user rogue-arena 2>$null | Out-Null
-
-claude mcp add --scope user rogue-arena -- rogue-mcp serve
-
-Write-Host "  MCP server configured."
-
-# ── Done ─────────────────────────────────────────────────────────────
+# -- Done -------------------------------------------------------------
 Write-Host ""
 Write-Host "  Installed successfully!"
 Write-Host ""
 Write-Host "  What was installed:"
 Write-Host "    - rogue-mcp CLI (MCP server)"
-Write-Host "    - $pluginCount Rogue Arena plugins for Claude Code"
-Write-Host "    - MCP server config (auto-connects on Claude Code start)"
+if ($HaveClaude) {
+    Write-Host "    - Claude Code: Rogue Arena plugins + user-scope MCP server"
+}
+if ($HaveCodex) {
+    Write-Host "    - Codex: MCP server in ~/.codex/config.toml + $CodexSkillCount skill(s) in ~/.codex/skills"
+}
 Write-Host ""
-Write-Host "  Next step:"
+Write-Host "  Next step (authenticate once - shared across both):"
 Write-Host "    rogue-mcp login"
 Write-Host ""
 Write-Host "  To update later, just re-run this script."

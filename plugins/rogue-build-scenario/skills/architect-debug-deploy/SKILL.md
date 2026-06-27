@@ -111,5 +111,5 @@ Present findings per failed machine:
 ## Next Steps
 
 If the fix requires canvas changes (wrong plugin params, missing plugin, etc.):
-- Suggest architect-freeform for small fixes: "Want me to fix the plugin params directly? `/rogue-build-scenario:architect-freeform`"
-- Suggest architect-brainstorm for larger issues: "This looks like a design problem. Consider redesigning with `/rogue-build-scenario:architect-brainstorm`"
+- Suggest architect-freeform for small fixes: "Want me to fix the plugin params directly? `/rogue-build-scenario:architect-freeform`" (in Codex: invoke the `architect-freeform` skill)
+- Suggest architect-brainstorm for larger issues: "This looks like a design problem. Consider redesigning with `/rogue-build-scenario:architect-brainstorm`" (in Codex: invoke the `architect-brainstorm` skill)

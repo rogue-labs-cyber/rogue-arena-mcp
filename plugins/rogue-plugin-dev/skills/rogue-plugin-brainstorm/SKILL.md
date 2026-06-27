@@ -117,7 +117,7 @@ Do NOT write Ansible YAML (beyond the scaffold header) or create implementation 
 
 You MUST create a task for each of these items and complete them in order:
 
-1. **Read Ansible KB** — `../../reference/ansible-knowledge-base.md` — internalize before any research
+1. **Read Ansible KB** — `reference/ansible-knowledge-base.md` — internalize before any research
 2. **Resolve workspace** — determine the Rogue Labs workspace path (see Workspace Resolution above)
 3. **Check directory** — `{ROGUE_WORKSPACE}/plugin-dev/projects/` exists, create if not
 4. **Ask intake questions** (Q1-Q4) one at a time
@@ -129,7 +129,7 @@ You MUST create a task for each of these items and complete them in order:
 10. **Scaffold** project folder and all files
 10.5. **Collect platform IDs** (optional, but required before canvas build in step 10.6) — plugin version IDs (push desc/type via `plugin_dev_update_metadata` AND every declared param via `plugin_dev_add_param`) and canvas ID
 10.6. **Build test scenario on canvas** (optional, requires canvas ID) — stage drafts via architect tools
-11. **Handoff** to `/rogue-plugin-dev:rogue-plugin-develop`
+11. **Handoff** to `/rogue-plugin-dev:rogue-plugin-develop` (in Codex: invoke the `rogue-plugin-develop` skill)
 
 ## Process Flow
 
@@ -702,7 +702,7 @@ If the user says no, set `testScenario.buildStatus` to `"deferred"` and continue
 
 Before mutating anything:
 
-1. **Read the architect rules** — `Read` `../../../rogue-build-scenario/refs/freeform-context.md` (sibling plugin in the same plugins root). This covers the Canvas → Domain → VLAN → Machine → Plugin order, DC-first ordering, the **`architect_plugin_catalog_list_full` BEFORE `set_params` LAW**, draft/Apply-Plan semantics, and account-type separation. **Internalize it before any mutation.** If that file isn't present (the rogue-build-scenario plugin isn't installed), tell the user and skip the build — don't try to build without those rules.
+1. **Read the architect rules** — `Read` `refs/freeform-context.md` (co-located from the rogue-build-scenario plugin). This covers the Canvas → Domain → VLAN → Machine → Plugin order, DC-first ordering, the **`architect_plugin_catalog_list_full` BEFORE `set_params` LAW**, draft/Apply-Plan semantics, and account-type separation. **Internalize it before any mutation.** If that file isn't present (the rogue-build-scenario plugin isn't installed), tell the user and skip the build — don't try to build without those rules.
 2. **Discover architect tools** — call `discover_tools(category: "ROGUE_ARCHITECT_BUILDER")` (and `subcategory: "deploy"` only if you'll need deploy tools — not needed for staging).
 3. **Set the canvas** — `rogue_set_canvas(canvasVersionId)`.
 4. **Read current canvas state** — `architect_canvas_get_overview()` so you don't double-create entities the user already has on the canvas.

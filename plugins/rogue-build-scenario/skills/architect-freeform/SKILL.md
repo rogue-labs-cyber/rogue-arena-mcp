@@ -82,7 +82,7 @@ User: "Add a Windows file server to the Server Room VLAN."
 Oracle: [checks budget with architect_canvas_get_budget] [searches plugin catalog for file server plugins] [creates machine with architect_machine_add] "File server staged in Server Room as draft. Found 'windows-file-share' plugin — want me to install it and configure the share paths?"
 
 User: "Is this ready to deploy?"
-Oracle: "That's the final-validate skill's job — handing off." [invokes `Skill("rogue-build-scenario:architect-final-validate")`]
+Oracle: "That's the final-validate skill's job — handing off." [invokes `Skill("rogue-build-scenario:architect-final-validate")` (in Codex: invoke the `architect-final-validate` skill)]
 </examples>
 
 ## Context Reference
@@ -112,7 +112,7 @@ Freeform is for single-entity or few-entity changes:
 - Seed files on a machine
 - Add machine notes
 
-If the user requests large-scale redesign (changing company identity, adding domains, reorganizing VLANs), suggest: "That sounds like a bigger change — want to use the scenario brainstorm to redesign it properly? `/rogue-build-scenario:architect-brainstorm`"
+If the user requests large-scale redesign (changing company identity, adding domains, reorganizing VLANs), suggest: "That sounds like a bigger change — want to use the scenario brainstorm to redesign it properly? `/rogue-build-scenario:architect-brainstorm` (in Codex: invoke the `architect-brainstorm` skill)"
 
 ## Exploit-Path Auto-Stamp
 
@@ -182,6 +182,7 @@ Hand off to the dedicated audit skill — do not run the checks inline.
 ```
 Skill("rogue-build-scenario:architect-final-validate")
 ```
+(in Codex: invoke the `architect-final-validate` skill)
 
 That skill is read-only and self-contained: plugin params, run order, completeness, infrastructure correctness, exploit path trace via aiNotes, and realism grade with a single consolidated verdict.
 

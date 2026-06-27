@@ -123,7 +123,7 @@ After the hard gates, classify the user's request. **Announce your classificatio
 | **Investigate** | "What's running?", "show me the VMs" | Already done in hard gate 3 — present the VM list |
 | **Run command** | "Execute this", "run nmap", "check the logs" | `deployment_run_script` with OS-correct syntax (single-liner or multi-line script) |
 | **Testing loop** | "Test this payload", "try this exploit" | Snapshot → run_script → observe → revert → iterate |
-| **Maldev / detection testing** | "Test my tool against detections", "maldev loop", "research TTPs", "build a playbook", "maldev quickstart", "test techniques" | Offer: "Want me to run the maldev loop — snapshot, execute, SIEM query, revert, iterate? I can research TTPs and build a playbook first if you need, or jump straight to testing your tool." If yes, invoke `rogue-active-deployment:rogue-maldev` |
+| **Maldev / detection testing** | "Test my tool against detections", "maldev loop", "research TTPs", "build a playbook", "maldev quickstart", "test techniques" | Offer: "Want me to run the maldev loop — snapshot, execute, SIEM query, revert, iterate? I can research TTPs and build a playbook first if you need, or jump straight to testing your tool." If yes, invoke `rogue-active-deployment:rogue-maldev` (in Codex: invoke the `rogue-maldev` skill) |
 | **Browse filesystem** | "What's on this machine?", "find the flag" | `deployment_dir_listing` with OS-appropriate root |
 | **Read file contents** | "Show me that config", "grab the log" | `deployment_read_file` — use mode head/tail/range. For binary files use `deployment_download_file` |
 | **Search file contents** | "Find passwords in config files", "grep for credentials" | `deployment_grep_file` with pattern and optional regex/context |

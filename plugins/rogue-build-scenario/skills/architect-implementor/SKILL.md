@@ -264,7 +264,7 @@ Following refs/phases/exploits.md Write phase:
 
 After all build phases complete (Phase B for scenario-only runs, or B + C + D when an exploit path is in play), the implementor's job is done. Tell the user:
 
-> "Build staged as drafts. Run `/architect-final-validate` for a full pre-deploy audit (plugin params, run order, completeness, exploit path trace, realism grade) before Apply Plan."
+> "Build staged as drafts. Run `/architect-final-validate` (in Codex: invoke the `architect-final-validate` skill) for a full pre-deploy audit (plugin params, run order, completeness, exploit path trace, realism grade) before Apply Plan."
 
 Do not run validation inline. The `architect-final-validate` skill is read-only and self-contained — invoking it is the user's call.
 

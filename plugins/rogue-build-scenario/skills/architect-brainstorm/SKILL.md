@@ -206,9 +206,9 @@ Hold both in context for the rest of Phase 4. Optional one-liner: "Loaded N tech
 
 This replaces per-hop catalog queries. Reachability checks (`architect_vlan_get`) stay per-hop because they are canvas-specific.
 
-Also load reference docs via Glob:
-- `**/rogue-build-scenario/refs/exploit-design.md`
-- `**/rogue-build-scenario/refs/escape-hatch-plugins.md`
+Also load reference docs:
+- `refs/exploit-design.md`
+- `refs/escape-hatch-plugins.md`
 
 ### Canvas survey (silent, before Fork 1)
 
@@ -380,7 +380,7 @@ These rules apply inside each Fork 6..N. Do not restate them per Fork.
 
 - `exploit.yml` with: `crownJewel` (if Fork 1 picked A/B/C/D), `entryPoint`, `endTarget`, `privilegeArcShape`, `bypassDecisions` (omit if none surfaced), and the full hop list.
 - Do **not** invoke `architect-implementor` directly.
-- Invoke the validator: `Skill("rogue-build-scenario:architect-validator")` with the scenario directory path. Validator gates the implementor handoff.
+- Invoke the validator: `Skill("rogue-build-scenario:architect-validator")` (in Codex: invoke the `architect-validator` skill) with the scenario directory path. Validator gates the implementor handoff.
 
 ### Rationalizations to refuse
 
@@ -430,7 +430,7 @@ Then:
 
 > **All 4 phases complete.** Your scenario files are ready. The canvas ID was collected during Phase 3 — I'll stamp it into each YML file now and hand off to the validator.
 
-Collect canvas ID → stamp into all YML files → invoke `Skill("rogue-build-scenario:architect-validator")` with the scenario directory path. Validator gates the implementor handoff.
+Collect canvas ID → stamp into all YML files → invoke `Skill("rogue-build-scenario:architect-validator")` (in Codex: invoke the `architect-validator` skill) with the scenario directory path. Validator gates the implementor handoff.
 
 ## Workspace
 
@@ -450,7 +450,7 @@ Reference files are in the same plugin directory as this skill, under `refs/`:
 - `refs/brainstorm-reference.md` — visual formats, scaling guidance, defaults block, detailed question examples, anti-patterns
 - `refs/scenario-schema.md` — YML examples and schema for all 4 output files
 
-Use Glob with pattern `**/rogue-build-scenario/refs/brainstorm-reference.md`, `**/rogue-build-scenario/refs/scenario-schema.md`, or `**/rogue-build-scenario/refs/exploit-design.md` to locate them. Load scenario-schema.md before writing any YML file. Load exploit-design.md at Phase 4 start, before proposing any exploit path.
+Read `refs/brainstorm-reference.md`, `refs/scenario-schema.md`, or `refs/exploit-design.md` directly. Load scenario-schema.md before writing any YML file. Load exploit-design.md at Phase 4 start, before proposing any exploit path.
 
 ## Key Principles
 

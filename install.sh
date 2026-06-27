@@ -106,23 +106,32 @@ echo "  git found."
 
 echo ""
 
-# ── Clone or update the repo ────────────────────────────────────────
-# Self-heals if upstream history was rewritten (force-push): a plain git
-# pull fails with "divergent branches"; fall through to a clean re-clone.
-if [ -d "$INSTALL_DIR" ]; then
-  echo "  Updating existing installation..."
+# ── Obtain the source ───────────────────────────────────────────────
+# ROGUE_LOCAL_SRC lets a developer install from a local working copy
+# (e.g. one uploaded to a test VM) instead of cloning from GitHub. When
+# set, the clone/update is skipped and the build runs against that dir.
+if [ -n "${ROGUE_LOCAL_SRC:-}" ]; then
+  INSTALL_DIR="$ROGUE_LOCAL_SRC"
+  echo "  Using local source (ROGUE_LOCAL_SRC): $INSTALL_DIR"
   cd "$INSTALL_DIR"
-  if ! git pull --quiet --ff-only 2>/dev/null; then
-    echo "  Upstream history changed — re-cloning fresh..."
-    cd /
-    rm -rf "$INSTALL_DIR"
+else
+  # Self-heals if upstream history was rewritten (force-push): a plain git
+  # pull fails with "divergent branches"; fall through to a clean re-clone.
+  if [ -d "$INSTALL_DIR" ]; then
+    echo "  Updating existing installation..."
+    cd "$INSTALL_DIR"
+    if ! git pull --quiet --ff-only 2>/dev/null; then
+      echo "  Upstream history changed — re-cloning fresh..."
+      cd /
+      rm -rf "$INSTALL_DIR"
+      git clone --quiet "$REPO_URL" "$INSTALL_DIR"
+      cd "$INSTALL_DIR"
+    fi
+  else
+    echo "  Cloning rogue-arena-mcp..."
     git clone --quiet "$REPO_URL" "$INSTALL_DIR"
     cd "$INSTALL_DIR"
   fi
-else
-  echo "  Cloning rogue-arena-mcp..."
-  git clone --quiet "$REPO_URL" "$INSTALL_DIR"
-  cd "$INSTALL_DIR"
 fi
 
 # ── Build the MCP server ────────────────────────────────────────────
@@ -148,55 +157,93 @@ if ! command -v rogue-mcp >/dev/null 2>&1; then
   exit 1
 fi
 
-# ── Check for Claude Code ───────────────────────────────────────────
-if ! command -v claude >/dev/null 2>&1; then
-  echo "  Claude Code CLI not found."
-  if confirm "Install Claude Code via npm?"; then
-    npm install -g @anthropic-ai/claude-code
-  else
-    echo "  Claude Code is required. Install it and re-run this script."
-    exit 1
-  fi
+# ── Detect target agent CLI(s): Claude Code and/or OpenAI Codex ─────
+# We register into whichever agent CLI is already installed. We do NOT
+# auto-install an agent — if neither is present, fail loud with hints.
+HAVE_CLAUDE=false
+HAVE_CODEX=false
+if command -v claude >/dev/null 2>&1; then HAVE_CLAUDE=true; fi
+if command -v codex  >/dev/null 2>&1; then HAVE_CODEX=true; fi
+
+if [ "$HAVE_CLAUDE" = false ] && [ "$HAVE_CODEX" = false ]; then
+  echo ""
+  echo "  No supported agent CLI found on PATH."
+  echo "  Rogue Arena MCP plugs into Claude Code or OpenAI Codex."
+  echo "  Install one, then re-run this installer:"
+  echo "    Claude Code:   npm install -g @anthropic-ai/claude-code"
+  echo "    OpenAI Codex:  npm install -g @openai/codex"
+  exit 1
 fi
-
-echo "  Claude Code CLI found."
-
-# ── Register plugins via Claude Code's marketplace flow ─────────────
-echo "  Registering Rogue Arena plugins..."
 
 PLUGINS="rogue-build-scenario rogue-plugin-dev rogue-curriculum-builder rogue-active-deployment rogue-auto-update"
-PLUGIN_COUNT=5
 
-# Add marketplace (idempotent — ignore error if already registered)
-claude plugin marketplace add "$REPO_URL" >/dev/null 2>&1 || true
+# ── Claude Code: marketplace plugins + user-scope MCP server ────────
+if [ "$HAVE_CLAUDE" = true ]; then
+  echo "  Claude Code CLI found — registering for Claude Code..."
 
-# Refresh the marketplace's internal clone. Without this, claude plugin install
-# reads stale files after an upstream force-push or normal update.
-claude plugin marketplace update rogue-arena >/dev/null 2>&1 || true
+  # Add marketplace (idempotent — ignore error if already registered)
+  claude plugin marketplace add "$REPO_URL" >/dev/null 2>&1 || true
+  # Refresh the marketplace clone so plugin install doesn't read stale files.
+  claude plugin marketplace update rogue-arena >/dev/null 2>&1 || true
+  # Clear stale plugin cache so renamed/deleted skills don't linger.
+  rm -rf "${HOME}/.claude/plugins/cache/rogue-arena"
+  for plugin in $PLUGINS; do
+    claude plugin install "${plugin}@rogue-arena" >/dev/null
+    echo "    Installed plugin: $plugin"
+  done
 
-# Clear stale plugin cache so renamed/deleted skills don't linger.
-rm -rf "${HOME}/.claude/plugins/cache/rogue-arena"
+  # Clean up legacy state from older installer versions
+  LEGACY_MCP_FILE="${HOME}/.claude/mcpjson.d/rogue-arena.json"
+  if [ -f "$LEGACY_MCP_FILE" ]; then rm -f "$LEGACY_MCP_FILE"; fi
 
-# Install each plugin (idempotent — claude plugin install re-installs cleanly)
-for plugin in $PLUGINS; do
-  claude plugin install "${plugin}@rogue-arena" >/dev/null
-  echo "    Installed: $plugin"
-done
-
-# ── Clean up legacy state from older installer versions ─────────────
-CLAUDE_DIR="${HOME}/.claude"
-LEGACY_MCP_FILE="${CLAUDE_DIR}/mcpjson.d/rogue-arena.json"
-if [ -f "$LEGACY_MCP_FILE" ]; then
-  rm -f "$LEGACY_MCP_FILE"
+  # Register the MCP server (idempotent — remove any existing entry first)
+  claude mcp remove --scope user rogue-arena >/dev/null 2>&1 || true
+  claude mcp add --scope user rogue-arena -- rogue-mcp serve
+  echo "  Claude Code: MCP server configured."
 fi
 
-# ── Configure MCP server ────────────────────────────────────────────
-# Remove any existing rogue-arena entry before re-adding (idempotent)
-claude mcp remove --scope user rogue-arena >/dev/null 2>&1 || true
+# ── OpenAI Codex: register the MCP server in ~/.codex/config.toml ────
+if [ "$HAVE_CODEX" = true ]; then
+  echo "  Codex CLI found — registering for Codex..."
+  # `codex mcp add` does a safe non-destructive merge into ~/.codex/config.toml.
+  # Idempotent — remove any existing entry first (ignore if absent).
+  codex mcp remove rogue-arena >/dev/null 2>&1 || true
+  codex mcp add rogue-arena -- rogue-mcp serve
+  echo "  Codex: MCP server registered."
 
-claude mcp add --scope user rogue-arena -- rogue-mcp serve
-
-echo "  MCP server configured."
+  # Skills: Codex has no plugin marketplace, so copy the skill folders into
+  # ~/.codex/skills (global — Codex discovers them at startup). Source is the
+  # repo's plugins/ tree, present in the published repo.
+  CODEX_SKILLS="${CODEX_HOME:-$HOME/.codex}/skills"
+  CODEX_SKILL_COUNT=0
+  if [ -d "$INSTALL_DIR/plugins" ]; then
+    mkdir -p "$CODEX_SKILLS"
+    for skill_dir in "$INSTALL_DIR"/plugins/*/skills/*/; do
+      [ -d "$skill_dir" ] || continue
+      [ -f "${skill_dir}SKILL.md" ] || continue
+      skill_name=$(basename "$skill_dir")
+      # Refresh our skill (idempotent); leave the user's other Codex skills alone.
+      rm -rf "$CODEX_SKILLS/$skill_name"
+      cp -R "$skill_dir" "$CODEX_SKILLS/$skill_name"
+      # Co-locate the plugin's shared refs (refs/, reference/) into the skill so
+      # skill-relative "refs/..." paths resolve in Codex's flat layout -- the
+      # plugin root doesn't travel with a per-skill copy the way it does in
+      # Claude Code's full-plugin install.
+      plugin_root=$(dirname "$(dirname "$skill_dir")")
+      for shared in refs reference; do
+        if [ -d "$plugin_root/$shared" ]; then
+          mkdir -p "$CODEX_SKILLS/$skill_name/$shared"
+          cp -R "$plugin_root/$shared/." "$CODEX_SKILLS/$skill_name/$shared/"
+        fi
+      done
+      echo "    Installed skill: $skill_name"
+      CODEX_SKILL_COUNT=$((CODEX_SKILL_COUNT + 1))
+    done
+    echo "  Codex: $CODEX_SKILL_COUNT skill(s) installed to $CODEX_SKILLS"
+  else
+    echo "  Codex: no plugins/ dir in source — skipping skill copy."
+  fi
+fi
 
 # ── Done ─────────────────────────────────────────────────────────────
 echo ""
@@ -204,10 +251,14 @@ echo "  Installed successfully!"
 echo ""
 echo "  What was installed:"
 echo "    - rogue-mcp CLI (MCP server)"
-echo "    - ${PLUGIN_COUNT} Rogue Arena plugins for Claude Code"
-echo "    - MCP server config (auto-connects on Claude Code start)"
+if [ "$HAVE_CLAUDE" = true ]; then
+  echo "    - Claude Code: Rogue Arena plugins + user-scope MCP server"
+fi
+if [ "$HAVE_CODEX" = true ]; then
+  echo "    - Codex: MCP server in ~/.codex/config.toml + ${CODEX_SKILL_COUNT} skill(s) in ~/.codex/skills"
+fi
 echo ""
-echo "  Next step:"
+echo "  Next step (authenticate once — shared across both):"
 echo "    rogue-mcp login"
 echo ""
 echo "  To update later, just re-run this script."

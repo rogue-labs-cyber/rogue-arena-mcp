@@ -114,7 +114,7 @@ The user owns full builds and deploys (clicking Apply Plan, VM provisioning, ful
 
 You MUST create a task for each of these items and complete them in order:
 
-1. **Read Ansible KB** — `../../reference/ansible-knowledge-base.md` — internalize ALL of it before writing any YAML
+1. **Read Ansible KB** — `reference/ansible-knowledge-base.md` — internalize ALL of it before writing any YAML
 2. **Resolve workspace** — determine the Rogue Labs workspace path (see Workspace Resolution above)
 3. **Scan projects** — `{ROGUE_WORKSPACE}/plugin-dev/projects/` for `project.json` files
 4. **Present project menu** (or redirect to brainstorm if no projects exist)
@@ -205,7 +205,7 @@ If `project.json` has a `testScenario` outline with `buildStatus === "pending"` 
 
 > "I see a test scenario outline that hasn't been staged yet, and you have a canvas now. Want me to stage the domain/VLANs/machines/plugins on the canvas as drafts? You'll click Apply Plan to deploy."
 
-If the user says yes, follow the **Build Test Scenario on Canvas** section in the brainstorm skill — same procedure: load `../../../rogue-build-scenario/refs/freeform-context.md`, discover architect tools, stage in Canvas → Domain → VLAN → Machine → Plugin order, set `buildStatus` to `"staged"` on success.
+If the user says yes, follow the **Build Test Scenario on Canvas** section in the brainstorm skill — same procedure: load `refs/freeform-context.md`, discover architect tools, stage in Canvas → Domain → VLAN → Machine → Plugin order, set `buildStatus` to `"staged"` on success.
 
 **Before staging, enforce the Hard Gate (Hard Gates section above):** every project plugin in the outline must have its `pluginVersionId` set in `project.json` AND every declared param pushed to the platform via `plugin_dev_add_param`. If any plugin is missing these, walk the user through Platform Integration first (collect missing `pluginVersionId`s, push metadata, push every param). If the user wants to defer that work, set `buildStatus` to `"deferred"` and skip staging — don't half-stage with missing params.
 
@@ -271,7 +271,7 @@ Read all `project.json` files under `{ROGUE_WORKSPACE}/plugin-dev/projects/`. Fo
 
 If no valid projects found:
 
-> "No projects found in `{ROGUE_WORKSPACE}/plugin-dev/projects/`. Run `/rogue-plugin-dev:rogue-plugin-brainstorm` to create one."
+> "No projects found in `{ROGUE_WORKSPACE}/plugin-dev/projects/`. Run `/rogue-plugin-dev:rogue-plugin-brainstorm` (in Codex: invoke the `rogue-plugin-brainstorm` skill) to create one."
 
 Stop here.
 

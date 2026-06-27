@@ -7,13 +7,13 @@
     {
       "name": "rogue-build-scenario",
       "description": "Build and manage Rogue Arena scenarios — brainstorm company context and infrastructure via YML blueprints, implement via MCP tools, freeform canvas editing, and deployment debugging",
-      "version": "2.1.2",
+      "version": "2.2.0",
       "source": "./plugins/rogue-build-scenario"
     },
     {
       "name": "rogue-plugin-dev",
       "description": "Local-first Ansible plugin development — brainstorm projects, research offline install approaches, and iterate on Ansible YAML with human-driven builds",
-      "version": "1.1.1",
+      "version": "1.2.0",
       "source": "./plugins/rogue-plugin-dev"
     },
     {
@@ -25,7 +25,7 @@
     {
       "name": "rogue-active-deployment",
       "description": "Operate on a user's running Rogue Arena deployment — list VMs, execute commands, browse filesystems, manage snapshots, transfer files",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "source": "./plugins/rogue-active-deployment"
     },
     {

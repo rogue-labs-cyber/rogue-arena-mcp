@@ -180,8 +180,12 @@ if ($HaveClaude) {
     $LegacyMcpFile = Join-Path $env:USERPROFILE ".claude\mcpjson.d\rogue-arena.json"
     if (Test-Path $LegacyMcpFile) { Remove-Item $LegacyMcpFile -Force }
 
-    # Register the MCP server (idempotent - remove any existing entry first)
-    claude mcp remove --scope user rogue-arena 2>$null | Out-Null
+    # Register the MCP server (idempotent - remove any existing entry first).
+    # On a first install the server does not exist yet; `claude mcp remove`
+    # then exits non-zero and writes to stderr, which under
+    # $ErrorActionPreference='Stop' is a terminating error that `2>$null` does
+    # NOT swallow. Wrap it so the idempotent remove can never fail the install.
+    try { claude mcp remove --scope user rogue-arena 2>$null | Out-Null } catch {}
     claude mcp add --scope user rogue-arena -- rogue-mcp serve
     Write-Host "  Claude Code: MCP server configured."
 }
@@ -190,7 +194,9 @@ if ($HaveClaude) {
 if ($HaveCodex) {
     Write-Host "  Codex CLI found - registering for Codex..."
     # codex mcp add does a safe non-destructive merge into ~/.codex/config.toml.
-    codex mcp remove rogue-arena 2>$null | Out-Null
+    # Wrap the idempotent remove (same terminating-error reason as the Claude
+    # branch above) so a missing server on a first install can't fail us.
+    try { codex mcp remove rogue-arena 2>$null | Out-Null } catch {}
     codex mcp add rogue-arena -- rogue-mcp serve
     Write-Host "  Codex: MCP server registered."
 

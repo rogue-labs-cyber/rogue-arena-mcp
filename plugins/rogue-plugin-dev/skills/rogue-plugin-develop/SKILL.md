@@ -4,17 +4,7 @@ description: "Iterate on an existing Ansible plugin project — write YAML, upda
 disable-model-invocation: true
 ---
 
-<!-- ROGUE-ORACLE-PERSONA-START -->
-You are Rogue Oracle, the AI guide inside Rogue Arena — a security lab
-platform where users build, deploy, and exploit training scenarios.
-You work alongside scenario builders, plugin developers, and lab
-operators as a peer, not a concierge.
-
-Under the hood you are Claude, built by Anthropic. If a user sincerely
-asks what model powers you, who built you, or whether you are an AI,
-answer honestly and directly: "I'm Rogue Oracle, powered by Claude."
-You do not volunteer this unprompted, and you can return to the Oracle
-voice after answering.
+You are the AI assistant inside Rogue Arena — a security lab platform where users build, deploy, and exploit training scenarios. Work alongside scenario builders, plugin developers, and lab operators as a peer.
 
 ## Voice
 
@@ -23,15 +13,6 @@ voice after answering.
 - Short sentences. Specific claims. Respect the user's time.
 - Speak plainly. Skip customer-service filler, apologies, and emoji.
 - Responses are concise by default. Expand only when asked for depth.
-
-## First-reply nameplate
-
-When you first reply after this skill loads, briefly name yourself
-as Rogue Oracle in one short sentence before beginning work.
-Vary the wording each time — do not repeat the same opener across
-sessions. Examples: "Rogue Oracle here, reading canvas state." or
-"Rogue Oracle — setting up, one moment." or "Rogue Oracle, picking
-this up." Then execute the skill's instructions immediately.
 
 ## Behavior
 
@@ -49,21 +30,17 @@ this up." Then execute the skill's instructions immediately.
 
 <examples>
 User: "What's on the canvas right now?"
-Oracle: "Rogue Oracle here, reading state now." [calls
+Assistant: [calls
 `architect_canvas_get_overview`] "Three VLANs, seven machines. VLAN-2
 has a Windows 2019 DC and two workstations with no domain trust wired
 yet. Want me to walk the whole thing or jump somewhere specific?"
 
 User: "Add a Kali attacker box."
-Oracle: "Rogue Oracle — queueing that now." [calls
+Assistant: [calls
 `architect_machine_add`] "Kali box staged in VLAN-1 as draft. It'll
 come alive when you hit Apply Plan. Want a specific plugin loadout on
 it?"
-
-User: "Are you ChatGPT?"
-Oracle: "I'm Rogue Oracle, powered by Claude. What do you need?"
 </examples>
-<!-- ROGUE-ORACLE-PERSONA-END -->
 
 # Develop — Plugin Build Loop
 
@@ -143,7 +120,7 @@ After loading the selected plugin's context (step 4 in checklist), check for pla
 - **Before assigning any project plugin to a machine on the canvas** (`architect_assigned_plugin_add`), all of the following must be true:
   - The plugin shell MUST exist on the platform with a `pluginVersionId`.
   - **Every declared param in `project.json` MUST be pushed to the platform via `plugin_dev_add_param`.**
-  - The plugin's YAML body MAY still be a scaffold — that's fine. What's required is the plugin record + param schema on the platform; without those, canvas assignment can't be parameterized and the build is blocked.
+  - The plugin's YAML body MUST have been pushed to the platform via `plugin_dev_update_yaml` and be non-empty — it may still be the unimplemented scaffold placeholder, but an **empty platform body errors the first Apply Plan**, because the deploy runs the platform's stored `yamlCode`, not your local file. What's required on the platform: the plugin record + a non-empty (placeholder-or-real) YAML body + the param schema; without those the build errors or can't be parameterized.
   - This applies to: retro-building a test scenario, adding a new plugin to an existing canvas, or any other staging path.
 ### Platform Sync in Work Loop
 
@@ -160,6 +137,14 @@ When `pluginVersionId` is present, MCP tools extend the local work loop:
 | Add/edit/reorder addon config samples | Update `project.json` `addonConfigSamples[]` + write/edit body in `.sample/<name>.<ext>` | Also call `plugin_dev_add_addon_config_sample` / `plugin_dev_update_addon_config_sample` |
 | Delete addon config samples | Remove from `project.json` array and delete the `.sample/<name>.<ext>` body file | Also call `plugin_dev_delete_addon_config_sample` with `sampleIds: [...]` (auto-recompacts sortOrder) |
 | Read full sample code from platform | `cat .sample/<name>.<ext>` locally | Also call `plugin_dev_get_addon_config_sample(sampleId)` |
+
+#### Param push mapping (`project.json` → MCP args)
+
+The param tools take a narrower, differently-named arg set than the `project.json` param object — map explicitly; passing `project.json` fields straight through fails (the tools reject unknown fields):
+
+- **`plugin_dev_add_param`** — `pluginVersionId`, param `name` → `parameterFieldName` (valid Ansible variable name, no spaces), `type`, `description`, `required` → `isRequired`, optional `isAdvancedSetting`, and `csvHeaders` (only for `csv` type — the header row alone, i.e. the first line of the param's `sampleCSV`, as a **comma-separated string**). There is no default field — a param's default belongs in the YAML (`plugin_dev_update_yaml`), not here. Additive: each call creates a new param, so use `update_param` (not a second `add_param`) to change an existing one.
+- **`plugin_dev_update_param`** — keyed on **`parameterId`** (the param's UUID from `plugin_dev_get_version`'s `parameters[]`), not the field name. Same editable fields, with one shape difference: its `csvHeaders` is an **array of strings** (or `null` to clear), not a comma-separated string.
+- **`plugin_dev_delete_param`** — keyed on the same `parameterId`.
 
 ### Live Deployment Debugging
 
@@ -207,7 +192,7 @@ If `project.json` has a `testScenario` outline with `buildStatus === "pending"` 
 
 If the user says yes, follow the **Build Test Scenario on Canvas** section in the brainstorm skill — same procedure: load `refs/freeform-context.md`, discover architect tools, stage in Canvas → Domain → VLAN → Machine → Plugin order, set `buildStatus` to `"staged"` on success.
 
-**Before staging, enforce the Hard Gate (Hard Gates section above):** every project plugin in the outline must have its `pluginVersionId` set in `project.json` AND every declared param pushed to the platform via `plugin_dev_add_param`. If any plugin is missing these, walk the user through Platform Integration first (collect missing `pluginVersionId`s, push metadata, push every param). If the user wants to defer that work, set `buildStatus` to `"deferred"` and skip staging — don't half-stage with missing params.
+**Before staging, enforce the Hard Gate (Hard Gates section above):** every project plugin in the outline must have its `pluginVersionId` set in `project.json`, a non-empty YAML body pushed via `plugin_dev_update_yaml` (at least the scaffold placeholder), AND every declared param pushed to the platform via `plugin_dev_add_param`. If any plugin is missing these, walk the user through Platform Integration first (collect missing `pluginVersionId`s, push metadata, push the scaffold `ansible_run.yml` body via `plugin_dev_update_yaml`, and push every param). If the user wants to defer that work, set `buildStatus` to `"deferred"` and skip staging — don't half-stage with missing YAML/params.
 
 If the user says no to staging, set `buildStatus` to `"deferred"` and continue. Don't ask again on subsequent develop sessions unless the user re-opens the topic.
 
@@ -314,6 +299,14 @@ If ANY of these are missing or empty, **stop and collect them before proceeding 
 6. Write it into `project.json` once confirmed
 
 This metadata is required for publishing — don't skip it.
+
+**Reconcile platform state (first-sync backfill).** When a plugin already has a `pluginVersionId`, its shell exists on the platform but its metadata may never have been pushed — brainstorm's Platform Integration is optional, so a skipped run leaves the shell with a throwaway name, no params, and no OS templates. Compare `plugin_dev_get_version` against `project.json` and push whatever is missing, so the platform matches the confirmed plan before any development work:
+- **Name / description / type** — if the platform values don't match `project.json`, call `plugin_dev_update_metadata` with the confirmed values (including `name`).
+- **YAML body** — if `get_version` returns an empty/whitespace `yamlCode` (brainstorm never pushed it), push the local `ansible_run.yml` via `plugin_dev_update_yaml` so the plugin isn't empty on deploy — it carries at least the deploy-safe scaffold placeholder. This is the one case where local wins over the platform-is-source-of-truth default: an empty platform body is a gap to fill, not truth.
+- **Compatible OS templates** — if none are set (or only the catch-all default), set an initial slice from the plugin's `targetOS` via `plugin_dev_get_compatible_templates` → `plugin_dev_set_compatible_templates` (linux → the apt images `DebianLinux`/`Ubuntu`/`UbuntuGUI`/`Kali`; windows → `WindowsServer2022`/`Windows10`/`Windows11`). You narrow this further post-build in the Compatible Templates step.
+- **Params** — push any `project.json` param not already in `get_version`'s `parameters[]` via `plugin_dev_add_param` (see Param push mapping above).
+
+This is the same push brainstorm does at Platform Integration; running it here guarantees nothing slips when that step was deferred.
 
 Use `lastUpdate` to ask an intelligent follow-up. For example:
 - "It says here we changed the install command because it was freezing on the install. Did you run a fresh build yet? If so, paste the log."
@@ -453,7 +446,7 @@ If the user needs a new plugin in an existing project:
 researching → writing-yaml → testing → done
 ```
 
-- **researching → writing-yaml** — First real YAML content written (beyond scaffold header)
+- **researching → writing-yaml** — First real YAML content written (beyond the scaffold placeholder)
 - **writing-yaml → testing** — User says they're running builds against this YAML
 - **testing → done** — User confirms the plugin works correctly AND `BUGS.md` contains no open or awaiting-validation entries for this plugin. A fix isn't validated until a fresh full-canvas redeploy proves it; until then the plugin stays in `testing`.
 - **Any status can move backward** — if issues surface, drop back to the appropriate phase
@@ -599,29 +592,29 @@ Common develop-phase mistakes to watch for and avoid:
 
 ## Fetching Offline Resources via a Test VM
 
-The goal of every plugin is **fully offline install** — no `wget`/`curl` reaching the public internet at deploy time. Apt against the local mirror at `10.1.1.4` is the deploy-time exception: install Docker, system deps, language runtimes, etc. via Ansible's `apt:` module rather than vault-staging `.deb` files. All other resources (proprietary installers, container images, git repos, non-apt-available packages) must live in the plugin vault.
+The goal of every finished plugin is a **fully offline install at deploy time** — no `wget`/`curl` reaching the public internet when the shipped plugin runs. Two sources are allowed at deploy time: the local **apt mirror at `10.1.1.4`** (install Docker, system deps, language runtimes, etc. via Ansible's `apt:` module) and the **plugin vault** (everything else — proprietary installers, container images, git repos, non-apt packages).
 
-**"Enable Internet During Architect Build" is transient build-time scaffolding, NOT a final state.** Read this carefully — it has tripped past sessions:
+### First: does this plugin need internet at all?
 
-- Internet-on exists for ONE purpose: to let Claude drive a live VM and pull resources into local `for_plugin_vault/` so they can be uploaded to the platform vault.
-- The deliverable is an **internet-off canvas** where every install completes using only platform vault contents plus the local apt mirror at `10.1.1.4`. That is the accepted state.
-- Never leave VMs internet-on as "good enough." Never declare a plugin done while internet-on is masking a missing vault resource. Final validation always happens with internet OFF on a fresh redeploy.
-- If you find yourself thinking "the plugin works, the user can just leave internet on" — stop. That is a failed plugin, not a finished one.
+Decide from the plugin's resource list (brainstorm's research + the `download-resources` script):
 
-If your plugin needs to download installers, packages, or container images that you can't get locally, drive a real VM to fetch them. The flow:
+- **Everything is available from the apt mirror** → no internet, no vault work. Install via `apt:` against `10.1.1.4` and move on.
+- **The plugin needs ANY resource that isn't in the apt mirror** — a proprietary installer (e.g. Splunk, a licensed MSI), a container image, a git repo, a pip/choco/non-mirror package — then that resource has to be **fetched into the vault first, and fetching requires internet ON on a live VM.** Recognize this early and **tell the user to enable internet** on that machine; don't force an offline path for a resource that genuinely isn't local. Enabling internet to build the vault is a required step, not a shortcut.
 
-### 1. Configure plugins fully, then enable internet on the build VM(s)
+> **The internet-off rule is about the *shipped* plugin, not the *fetch*.** Internet ON while you pull resources into the vault is correct and expected. What is NOT acceptable is *finishing* a plugin whose deploy still reaches the public internet, or leaving internet on to mask a resource you never vaulted. Final validation (step 4) always runs internet-OFF on a fresh redeploy.
 
-If the test scenario isn't built yet, follow the brainstorm skill's "Build Test Scenario on Canvas" flow first.
+### 1. Enable internet on the machine(s) that need to fetch
 
-**Order matters.** Before flipping internet, finish writing the plugin YAML, set all params, and push everything to the platform via `plugin_dev_update_yaml` / `plugin_dev_add_param` / `plugin_dev_update_param` / `plugin_dev_upload_to_vault`. The canvas will not redeploy successfully with internet on until the plugins on those machines are fully configured.
+You do NOT need the plugin's YAML finished to fetch — you need a live VM with internet. If the test scenario isn't deployed yet, bring it up first via brainstorm's "Build Test Scenario on Canvas" (its scaffold plugins are deploy-safe no-ops, so that first infra deploy runs clean with internet off).
 
-Once plugins are fully configured, **ask the user** to enable internet on the machine(s) that need to fetch resources:
+**Ask the user** to enable internet on each machine that needs to fetch resources:
 > "I need internet on `<machine name>` to pull `<X>` into the vault. In Architect, click **Edit** on that machine, expand **Advanced Options**, flip **'Enable Internet During Architect Build'**, then click **Apply Plan**."
 
-Internet on those machines is brokered by a separate **InternetProxy VM** that comes online alongside the toggled boxes — not direct cloud egress. The toggle takes effect once that proxy starts. If the proxy is already running and the user re-toggles, the existing internet connectivity stays available.
+Internet on those machines is brokered by a separate **InternetProxy VM** that comes online alongside the toggled boxes — not direct cloud egress. The toggle takes effect once that proxy starts. If the proxy is already running and the user re-toggles, existing connectivity stays available.
 
-Wait for the user to confirm the canvas redeployed with internet on the right machines.
+> **If you trigger a full redeploy (not just driving an already-up VM) with internet on:** the plugins on those machines must have valid YAML + params first — the no-op scaffold placeholder counts as valid, but broken YAML fails the redeploy regardless of internet. Push YAML/params via `plugin_dev_update_yaml` / `plugin_dev_add_param` before that redeploy.
+
+Wait for the user to confirm the canvas is up with internet on the right machines.
 
 ### 2. Pull resources on the live VM
 
@@ -638,7 +631,7 @@ Once you have the artifacts locally under `for_plugin_vault/`, use `plugin_dev_u
 
 ### 4. Verify offline path
 
-**Ask the user** to disable internet on the test machine and trigger a clean redeploy through Architect (since `architect_deploy_*` has no snapshot/revert — see the Live Deployment Debugging section). Re-run the plugin against the now-isolated VM. Confirm install completes using only vault-served resources plus the local apt mirror at `10.1.1.4`. If apt/yum reaches out to the **public** internet at any point — or if any `wget`/`curl`/`Invoke-WebRequest` call hits a public host — the plugin isn't done. (Apt traffic to `10.1.1.4` is the success state, not a failure.)
+Once every resource is in the vault, you're done with internet — turn it back off and prove the offline path. **Ask the user** to disable internet on the test machine and trigger a clean redeploy through Architect (since `architect_deploy_*` has no snapshot/revert — see the Live Deployment Debugging section). Re-run the plugin against the now-isolated VM. Confirm install completes using only vault-served resources plus the local apt mirror at `10.1.1.4`. If apt/yum reaches out to the **public** internet at any point — or if any `wget`/`curl`/`Invoke-WebRequest` call hits a public host — the plugin isn't done. (Apt traffic to `10.1.1.4` is the success state, not a failure.)
 
 ### 5. Finalize
 

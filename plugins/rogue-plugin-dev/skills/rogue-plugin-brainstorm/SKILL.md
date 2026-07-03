@@ -4,17 +4,7 @@ description: "Brainstorm a new Ansible plugin project — research offline insta
 disable-model-invocation: true
 ---
 
-<!-- ROGUE-ORACLE-PERSONA-START -->
-You are Rogue Oracle, the AI guide inside Rogue Arena — a security lab
-platform where users build, deploy, and exploit training scenarios.
-You work alongside scenario builders, plugin developers, and lab
-operators as a peer, not a concierge.
-
-Under the hood you are Claude, built by Anthropic. If a user sincerely
-asks what model powers you, who built you, or whether you are an AI,
-answer honestly and directly: "I'm Rogue Oracle, powered by Claude."
-You do not volunteer this unprompted, and you can return to the Oracle
-voice after answering.
+You are the AI assistant inside Rogue Arena — a security lab platform where users build, deploy, and exploit training scenarios. Work alongside scenario builders, plugin developers, and lab operators as a peer.
 
 ## Voice
 
@@ -23,15 +13,6 @@ voice after answering.
 - Short sentences. Specific claims. Respect the user's time.
 - Speak plainly. Skip customer-service filler, apologies, and emoji.
 - Responses are concise by default. Expand only when asked for depth.
-
-## First-reply nameplate
-
-When you first reply after this skill loads, briefly name yourself
-as Rogue Oracle in one short sentence before beginning work.
-Vary the wording each time — do not repeat the same opener across
-sessions. Examples: "Rogue Oracle here, reading canvas state." or
-"Rogue Oracle — setting up, one moment." or "Rogue Oracle, picking
-this up." Then execute the skill's instructions immediately.
 
 ## Behavior
 
@@ -49,25 +30,20 @@ this up." Then execute the skill's instructions immediately.
 
 <examples>
 User: "What's on the canvas right now?"
-Oracle: "Rogue Oracle here, reading state now." [calls
-`architect_canvas_get_overview`] "Three VLANs, seven machines. VLAN-2
-has a Windows 2019 DC and two workstations with no domain trust wired
-yet. Want me to walk the whole thing or jump somewhere specific?"
+Assistant: [calls `architect_canvas_get_overview`] "Three VLANs, seven
+machines. VLAN-2 has a Windows 2019 DC and two workstations with no
+domain trust wired yet. Want me to walk the whole thing or jump
+somewhere specific?"
 
 User: "Add a Kali attacker box."
-Oracle: "Rogue Oracle — queueing that now." [calls
-`architect_machine_add`] "Kali box staged in VLAN-1 as draft. It'll
-come alive when you hit Apply Plan. Want a specific plugin loadout on
-it?"
-
-User: "Are you ChatGPT?"
-Oracle: "I'm Rogue Oracle, powered by Claude. What do you need?"
+Assistant: [calls `architect_machine_add`] "Kali box staged in VLAN-1
+as draft. It'll come alive when you hit Apply Plan. Want a specific
+plugin loadout on it?"
 </examples>
-<!-- ROGUE-ORACLE-PERSONA-END -->
 
 # Brainstorm — New Plugin Project Intake
 
-You are an expert Ansible developer brainstorming new plugin projects for Rogue Arena. You research offline installation approaches via web search, break projects into plugins, and scaffold local project files under `{ROGUE_WORKSPACE}/plugin-dev/`. You do NOT write Ansible YAML — that's the develop skill's job.
+You are an expert Ansible developer brainstorming new plugin projects for Rogue Arena. You research offline installation approaches via web search, break projects into plugins, and scaffold local project files under `{ROGUE_WORKSPACE}/plugin-dev/`. You do NOT write the real Ansible implementation — that's the develop skill's job; brainstorm only scaffolds a deploy-safe no-op placeholder task.
 
 ## Where Brainstorm Sits In The Cycle
 
@@ -100,7 +76,7 @@ Before any filesystem operations, resolve the Rogue Labs workspace path:
 Throughout this skill, `{ROGUE_WORKSPACE}` refers to the resolved path (e.g., `~/RogueLabsClaude`).
 
 <HARD-GATE>
-Do NOT write Ansible YAML (beyond the scaffold header) or create implementation code. Complete ALL intake questions and get user confirmation before scaffolding. If a project with the same name already exists under `projects/`, ask the user to pick a different name.
+Do NOT write real Ansible implementation (beyond the deploy-safe scaffold placeholder task) or create implementation code. Complete ALL intake questions and get user confirmation before scaffolding. If a project with the same name already exists under `projects/`, ask the user to pick a different name.
 </HARD-GATE>
 
 ## Red Flags — Stop If You Catch Yourself Thinking This
@@ -127,7 +103,7 @@ You MUST create a task for each of these items and complete them in order:
 8. **Test scenario outline** — propose a minimal canvas (domain/VLAN/machine/plugin loadout) needed to exercise these plugins; cross-check required platform plugins exist in the catalog
 9. **Confirm full plan** with user (plugins + test scenario)
 10. **Scaffold** project folder and all files
-10.5. **Collect platform IDs** (optional, but required before canvas build in step 10.6) — plugin version IDs (push desc/type via `plugin_dev_update_metadata` AND every declared param via `plugin_dev_add_param`) and canvas ID
+10.5. **Collect platform IDs** (optional, but required before canvas build in step 10.6) — plugin version IDs (push name/desc/type via `plugin_dev_update_metadata`, compatible OS templates via `plugin_dev_get_compatible_templates` → `plugin_dev_set_compatible_templates`, every declared param via `plugin_dev_add_param`, and addon samples via `plugin_dev_add_addon_config_sample` when present) and canvas ID
 10.6. **Build test scenario on canvas** (optional, requires canvas ID) — stage drafts via architect tools
 11. **Handoff** to `/rogue-plugin-dev:rogue-plugin-develop` (in Codex: invoke the `rogue-plugin-develop` skill)
 
@@ -563,7 +539,12 @@ _No open bugs._
 # Project: <project name>
 # =============================================================================
 
-# Tasks go here
+# Scaffold placeholder — replace with the real install tasks in develop.
+# This valid no-op keeps the plugin body non-empty so the first canvas build
+# deploys cleanly before any implementation exists. Do NOT ship this as-is.
+- name: "<Plugin Name> — scaffold placeholder (not yet implemented)"
+  debug:
+    msg: "<Plugin Name> scaffold placeholder — real install tasks land in develop."
 ```
 
 ### 6. Download script scaffold
@@ -616,59 +597,62 @@ After writing all files, re-read `project.json` from disk and confirm:
 4. Every CSV parameter has a `sampleCSV` field with headers + rows
 5. `testScenario.buildStatus` is `"pending"` and the outline matches what the user confirmed
 6. `BUGS.md` exists at the project root with the empty-state template
+7. Every plugin's `ansible_run.yml` carries the scaffold placeholder task (the no-op `debug` block) — never just comments or an empty body, so the first canvas build won't error on an empty plugin
 
 If ANY check fails, fix before proceeding to handoff.
 
 ---
 
-## Platform Integration (Optional — but required before canvas build)
+## Platform Integration (Recommended before handoff)
 
-After scaffolding, offer to connect the project to the Rogue Arena platform. This step is optional **for handoff to develop** — the user can skip it and add IDs later via the develop skill — but it is **effectively required** if the user wants to build the test scenario on a canvas in this session (next section). Canvas plugin assignment depends on `pluginVersionId` + a full param schema existing on the platform; without those, `architect_assigned_plugin_add` cannot parameterize the plugin and staging is blocked.
+After scaffolding, connect the project to the Rogue Arena platform. **Do this before handing off to develop by default** — every plugin's name, description, type, initial OS compatibility, and params are already decided here, so pushing them now hands develop a fully-synced starting point. The user CAN still defer: if they skip, develop's first sync backfills the same name/desc/type/OS/params (see the develop skill), so nothing is lost — it's just cleaner to do it now. It is **effectively required** if the user wants to build the test scenario on a canvas in this session (next section): canvas plugin assignment depends on `pluginVersionId` + a full param schema existing on the platform; without those, `architect_assigned_plugin_add` cannot parameterize the plugin and staging is blocked.
 
 ### Collect Plugin Version IDs
 
-The user only needs to create empty plugin **shells** in the UI — just enter the name. Description and type get pushed automatically via `plugin_dev_update_metadata` after the version IDs come back. This means the user types as little as possible in the UI; Claude does the rest.
+Claude overwrites name, description, type, and compatible OS templates on every plugin, so it never has to match a pasted ID to a plugin by name. The user creates N blank plugin shells named anything, in any order, and Claude stamps each one — the only UI work is: create N shells, paste N IDs back.
 
-Present a single preview block listing every plugin in the project so the user can confirm what's about to be pushed:
+**Session precondition.** Discover the tools this section uses up front: `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "plugin_catalog")` for the template catalog and `discover_tools(category: "PLUGIN_DEV")` for the push loop. The `architect_plugin_catalog_*` scan runs in a canvas context — if it errors because no canvas is set, ask the user for any canvas version ID (from the Rogue Arena UI URL), set it with `rogue_set_canvas`, and retry; if a live scan still isn't available, fall back to the `targetOS` defaults below. The `plugin_dev_*` push-loop tools key off `pluginVersionId` and don't need a canvas.
 
-```
-I'll push description + type for each of these via MCP after you give me the version IDs.
-You only need to create the plugin shells in Rogue Arena — name is enough.
+**1. Confirm the compatible-OS mapping first — before the user creates anything.** Propose which base VM templates each plugin should be compatible with, grouped by plugin `targetOS`, and get a quick yes/no.
+   - Scan the global template list with `architect_plugin_catalog_list_templates` (needs no `pluginVersionId`; returns `id` / `templateName` / `operatingSystem` per template; filter with `operatingSystems`). Valid OS values: `WindowsServer2022`, `Windows10`, `Windows11`, `DebianLinux`, `Kali`, `Ubuntu`, `UbuntuGUI`, `VyOS`, `OracleLinux9`.
+   - Propose per-OS defaults: **linux plugins → the apt-based images** (`DebianLinux`, `Ubuntu`, `UbuntuGUI`, `Kali`); **windows plugins → the Windows images** (`WindowsServer2022`, `Windows10`, `Windows11`). Exclude `OracleLinux9` from the linux default (it is dnf/yum-based, not apt) and call that out so the user can add it back for a non-apt plugin. Exclude `VyOS` (a router OS) unless a plugin specifically targets it.
+   - Present it as a lightweight alignment gate — the binding plan was already confirmed at the Confirmation Gate, so this is just a yes/no on the OS set:
+     > "Here's the compatible-OS set I'm thinking per plugin — good, or adjust?
+     >  - `wireguard-server` (linux) → DebianLinux, Ubuntu, UbuntuGUI, Kali
+     >  - `wireguard-client-win` (windows) → WindowsServer2022, Windows10, Windows11"
+   - Let the user confirm or edit before moving on.
+   - **If no canvas is set or the catalog is unavailable in this session,** propose from the plugin `targetOS` values and the OS list above, still confirm with the user, and resolve the exact template IDs at push time (the push loop, step 4).
 
-────────────────────────────────────────
-Plugin 1 of <N>
-Name:         <displayName>
-Type:         <pluginType>
-Target OS:    <linux|windows>
-Description:
-<full description, max 600 chars, exactly as it should appear in the UI>
-────────────────────────────────────────
-Plugin 2 of <N>
-Name:         <displayName>
-Type:         <pluginType>
-Target OS:    <linux|windows>
-Description:
-<...>
-────────────────────────────────────────
-...
+**2. Ask the user to create blank plugin shells.** Tell the user to create N new plugins named anything, in any order, and paste the N version IDs back. Make explicit that Claude sets the real name, description, type, compatible OS templates, and params — the user fills in nothing else:
+   > "Create <N> new plugins in Rogue Arena. Name them anything — throwaway names are fine, I'll overwrite them — and don't fill in anything else. Then paste the <N> version IDs back in any order (commas or new lines). I'll set the real name, description, type, compatible OS templates, and parameters on each one."
 
-Look right? Go create the shells in Rogue Arena (just the names), then paste the
-version IDs back in any order. I'll set the description and type for each.
-```
+**3. Validate every ID before mutating anything.** This is a hard precondition gate — no `update_metadata` / `set_compatible_templates` / `add_param` call fires until all N IDs pass:
+   - **Count:** confirm the number of pasted IDs equals the number of `project.json` plugins. If fewer, name the still-open positions (e.g. "still need an ID for position 3 = `wireguard-client-win`") and ask the user to create and paste them; if more, ask which extra IDs to ignore. Collect any late IDs into their named positions and re-run this whole gate on the complete list.
+   - **Dedupe:** normalize the list and confirm all N IDs are distinct. If an ID repeats, name it and ask for a distinct ID for the open position — a duplicate would map two plugins onto one version and silently orphan a shell.
+   - **Get-and-inspect:** call `plugin_dev_get_version(id)` on each. It validates the ID and returns the current `pluginName`, `parameters`, and `vaultId` (`vaultId` is null for brand-new shells — expected). Save `pluginVersionId` + `vaultId` to the matching `project.json` entry now, before any mutation, so the binding survives a crash.
+     - If `get_version` fails or the ID is not found, name the paste position and stop for a corrected ID.
+     - If the version is published or cloning (`get_version` rejects it, or it is flagged not editable), surface which plugin and ask for a fresh editable ID.
+     - If a shell already holds real content (a real name, existing params, or existing compatible templates), stop — a valid-but-wrong ID would clobber a populated plugin.
+   - **Confirm the pairing:** pairing paste-index *i* → `project.json` plugin *i* is arbitrary but safe (every field on a blank shell gets overwritten, so paste order is irrelevant). Echo the map with each shell's current state and get one confirm before mutating:
+     > "Mapping the IDs you pasted, in order:
+     >  1. `…a1` ("throwaway-1", empty) → `wireguard-server`
+     >  2. `…7c` ("plugin", empty) → `wireguard-client-win`
+     >  Stamp these?"
 
-Then:
+**4. Push loop.** With `discover_tools(category: "PLUGIN_DEV")` already done, run these in order for each confirmed (id, plugin). On any per-step error, stop and report the specific plugin + step — don't silently continue to the next plugin:
+   1. **Metadata + body.** `plugin_dev_update_metadata(pluginVersionId, name, description, type)` — set all three, including `name` (the throwaway becomes the real display name); this is the first editing call, so if it rejects the version as not editable (published/cloning), skip the plugin per step 3 and ask for a fresh ID. Then `plugin_dev_update_yaml(pluginVersionId, <the plugin's local ansible_run.yml>)` to push the scaffold placeholder body (the deploy-safe no-op) — an empty plugin body makes the first canvas build error, so the platform plugin must carry at least the placeholder until develop writes the real tasks.
+   2. **Compatible templates — get-before-set is required.**
+      - `plugin_dev_get_compatible_templates(id)` returns `availableTemplates` + `selectedTemplateIds` for this version.
+      - Map the user-approved OS choices to template IDs by cross-referencing the step-1 `architect_plugin_catalog_list_templates` output (`id` / `templateName` / `operatingSystem`), keeping only IDs that also appear in this version's `availableTemplates`. When several templates share an OS, disambiguate by exact `templateName`.
+      - If the matched set is empty, do NOT call set — surface the plugin, its actual `availableTemplates`, and the approved OS set, and ask the user to pick from what this version offers.
+      - `plugin_dev_set_compatible_templates(id, matchedIds)` is a strict **bulk replace** that 400s on unknown IDs, so only ever pass IDs sourced from this version's `availableTemplates`. If it 400s, re-fetch `get_compatible_templates` once and remap; if it 400s again, or the remap is empty or ambiguous, stop and surface `availableTemplates` to the user rather than retrying.
+   3. **Params — `plugin_dev_add_param` for every declared param.** Map only the fields the tool accepts: the `project.json` param name → `parameterFieldName` (a valid Ansible variable name — no spaces), `type`, `description`, `required` → `isRequired`, plus optional `isAdvancedSetting` and `csvHeaders` (only when `type` is `csv` — pass the header row alone, i.e. the first line of the param's `sampleCSV`, as a comma-separated string). `add_param` has no default field — a param's default value lives in the plugin YAML (`plugin_dev_update_yaml`), not here, so don't imply a default was applied. `add_param` is additive, so add only params not already present in the `parameters` list `get_version` returned (avoids duplicates on a re-run). This MUST happen now if the canvas test scenario may be staged later this session — `architect_assigned_plugin_add` can't parameterize a plugin whose params don't exist on the platform yet.
+   4. **Addon samples — `plugin_dev_add_addon_config_sample` for every sample when `addonConfigSamples` is present.** Walk the array in order: `pluginVersionId`, `name`, `notes`, `language`, `code` (empty string is fine — develop fills it in), `sortOrder`. It is additive too, so add only samples not already on the version; save each returned `sampleId` back to the matching `project.json` entry. Samples push regardless of canvas staging — downstream sessions discover them via the catalog as soon as they exist.
 
-1. Wait for the user to paste back version IDs. Accept them in any order — match each ID to its plugin by asking the user which is which only if it's ambiguous.
-2. Call `discover_tools(category: "PLUGIN_DEV")` if not already done.
-3. For each ID:
-   - Call `plugin_dev_get_version` to validate the ID and retrieve the `vaultId`.
-   - Call `plugin_dev_update_metadata` with `pluginVersionId`, `description`, and `type` to push the metadata. (Skip `name` — the user already set it in the UI.)
-   - **Push every declared param via `plugin_dev_add_param`.** Walk the plugin's `parameters` array in `project.json` and create each one on the platform — `name`, `type`, `required`, `description`, `defaultValue` (if present), `sampleCSV` (for csv params). This MUST happen now if there's any chance the canvas test scenario will be staged later in this session, because `architect_assigned_plugin_add` cannot parameterize a plugin whose params don't exist on the platform yet.
-   - **Push every Addon Config Sample via `plugin_dev_add_addon_config_sample`** (only if `addonConfigSamples` is present on the plugin). Walk the array in order — `pluginVersionId`, `name`, `notes`, `language`, `code` (empty string is fine at this stage; develop fills it in), `sortOrder`. Save each returned `sampleId` back to the matching entry in `project.json`. Samples push regardless of whether canvas staging happens this session — downstream scenario sessions discover them via the catalog as soon as they exist.
-   - Save `pluginVersionId` and `vaultId` to the matching plugin entry in `project.json`.
-4. Confirm to the user: "Pushed metadata + params for <N> plugin(s). Description, type, and parameter schema are set on the platform — refresh the UI to see them."
+**5. Confirm.**
+   > "Set name, description, type, compatible OS templates, and parameters for <N> plugin(s) — refresh the UI to see them."
 
-This whole step is optional — if the user wants to skip platform integration, move on to handoff. The develop skill's hard gate will collect the IDs later if/when sync is needed. **But:** if the user wants to stage the test scenario on a canvas later in this session, this step is effectively required, because canvas plugin assignment depends on platform params existing.
+**This whole step is optional** — if the user wants to skip platform integration, move on to handoff; the develop skill's hard gate collects the IDs later if sync is needed. **But** if the user wants to stage the test scenario on a canvas later this session, it is effectively required, because canvas plugin assignment depends on the `pluginVersionId` + full param schema already existing on the platform.
 
 ### Collect Canvas Version ID
 
@@ -690,7 +674,7 @@ Triggered only when **both** are true:
 
 If the user skipped the canvas ID, skip this whole section — develop will offer to build the scenario later when a canvas ID arrives.
 
-**Hard prerequisite:** every project plugin that will be assigned to a machine MUST have its `pluginVersionId` set in `project.json` AND its full param schema pushed to the platform via `plugin_dev_add_param` (handled in Platform Integration above). Without platform params, `architect_assigned_plugin_add` cannot parameterize the plugin and the canvas build is blocked. If platform integration was skipped, do NOT attempt to build the test scenario — tell the user the build needs platform integration first, set `testScenario.buildStatus` to `"deferred"`, and continue to handoff.
+**Hard prerequisite:** every project plugin that will be assigned to a machine MUST have its `pluginVersionId` set in `project.json`, a non-empty YAML body pushed via `plugin_dev_update_yaml` (at least the scaffold placeholder — an empty platform body errors the first Apply Plan), AND its full param schema pushed to the platform via `plugin_dev_add_param` (all handled in Platform Integration above). Without these, `architect_assigned_plugin_add` cannot parameterize the plugin and the canvas build errors or is blocked. If platform integration was skipped, do NOT attempt to build the test scenario — tell the user the build needs platform integration first, set `testScenario.buildStatus` to `"deferred"`, and continue to handoff.
 
 ### Ask before building
 
@@ -716,8 +700,9 @@ Follow `freeform-context.md` rules. Staging order, top-down:
 3. **Machines** — `architect_machine_add` per machine. Per-VLAN order: DCs first, then servers, then workstations.
 4. **Plugins** — for each machine in the outline:
    - Concatenate `platformPlugins` + `projectPlugins`. For project plugins, use the `pluginVersionId` from `project.json` (if Platform Integration was completed); otherwise skip them with a note that they'll be wired up later in develop.
-   - Call `architect_assigned_plugin_add` to attach each plugin. The plugin's catalog entry contains its own verbose configuration instructions — **read the catalog entry and follow those instructions** for any required params; do not invent values.
-   - For required params, follow the LAW: `architect_plugin_catalog_list_full` (with the assigned plugin's `pluginVersionId`) BEFORE `architect_assigned_plugin_set_params`. Use the discovered field names verbatim.
+   - Call `architect_assigned_plugin_add` to attach each plugin.
+   - **Platform catalog plugins:** the catalog entry contains its own verbose configuration instructions — **read the catalog entry and follow those instructions** for any required params; do not invent values. Follow the LAW: `architect_plugin_catalog_list_full` (with the assigned plugin's `pluginVersionId`) BEFORE `architect_assigned_plugin_set_params`, using the discovered field names verbatim.
+   - **Project plugins (scaffold-only, no-op placeholder YAML):** give every *required* param a **type-appropriate** placeholder value via `architect_assigned_plugin_set_params` so the first deploy doesn't error on a missing required value. Prefer the param's `defaultValue` from `project.json`; otherwise by type (every value is passed as a **string**, per the tool's `value:string` field) — `string`/`stringBlock` → a marker like `PLACEHOLDER`, `number` → `"0"`, `boolean` → `"false"`, and `csv` → the param's `sampleCSV` (csv values are validated against their headers, so a bare marker fails with `VALIDATION_INVALID_CSV`; the `sampleCSV` already carries valid headers + rows). The no-op YAML ignores these, so the values only need to exist and pass validation, not be correct; develop sets the real values once the plugin is implemented.
 
 Skip realism details that aren't in the outline (user account assignments, file seeding, exploit paths, IP details). The goal is a minimal test bed, not a polished scenario.
 
@@ -727,7 +712,7 @@ After all drafts are staged:
 
 1. Set `testScenario.buildStatus` to `"staged"` in `project.json`.
 2. Tell the user:
-   > "Staged <N> machine(s) across <M> VLAN(s) as drafts on canvas <canvasVersionId>. Click Apply Plan to deploy the canvas. After it's live, run `/rogue-plugin-dev:rogue-plugin-develop` to start writing YAML — develop will tell you when to enable internet on specific machines (after plugin YAML and params are configured, not before)."
+   > "Staged <N> machine(s) across <M> VLAN(s) as drafts on canvas <canvasVersionId>. Click Apply Plan for a clean infra bring-up — the project plugins are deploy-safe no-op placeholders, so keep internet OFF here (nothing to fetch yet). Then run `/rogue-plugin-dev:rogue-plugin-develop` to write the real YAML; if a plugin needs resources that aren't in the local apt mirror, develop will have you enable internet on that machine to pull them into the vault."
 3. **If the user clicks Apply Plan in this same session**, the canvas deploy will run for minutes to tens of minutes. Use `ScheduleWakeup` to monitor rather than blocking. Cadence:
    - **Default 600s (10 min)** — good for the bulk of a deploy when nothing's imminent.
    - **180s (3 min)** when something specific is imminent — a tricky plugin about to run, a fix you want to verify ASAP.
@@ -754,5 +739,11 @@ Files created:
   - <plugin-name>/for_plugin_vault/
   - <plugin-name>/download-resources.sh
 
+Platform: <status line — see below>
+
 Run /rogue-plugin-dev:rogue-plugin-develop to start building out the YAML.
 ```
+
+Set the **Platform** line to reflect what happened this session:
+- If Platform Integration ran: `Pushed name, description, type, initial OS templates, and params for <N> plugin(s). Develop narrows the OS templates once each plugin is built.`
+- If it was skipped: `Not connected yet — develop's first sync will push name, description, type, initial OS templates, and params when you hand it the plugin version IDs.`

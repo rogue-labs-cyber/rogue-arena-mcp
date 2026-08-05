@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { decodeJwt } from "jose";
 import { login, logout } from "./auth-keycloak.js";
 import { loadTokens } from "./keychain.js";
 
@@ -25,14 +26,25 @@ async function main(): Promise<void> {
         console.error("Not logged in. Run: rogue-mcp login");
         process.exit(1);
       }
-      const expiresIn = tokens.expiresAt - Math.floor(Date.now() / 1000);
+      // Session lifetime comes from the refresh token — the access token is
+      // no longer persisted (see StoredTokens in keychain.ts). Offline tokens
+      // may carry no `exp` at all, in which case they last until revoked.
+      let sessionExpires = "valid until revoked";
+      try {
+        const exp = decodeJwt(tokens.refreshToken).exp;
+        if (typeof exp === "number" && exp > 0) {
+          sessionExpires = new Date(exp * 1000).toISOString();
+        }
+      } catch {
+        sessionExpires = "unknown (refresh token is not a readable JWT)";
+      }
       console.log(
         JSON.stringify(
           {
             userId: tokens.userId,
             username: tokens.username,
-            accessTokenExpiresIn: `${Math.max(0, Math.floor(expiresIn / 60))} minutes`,
-            note: "Refresh token auto-renews for ~30 days",
+            sessionExpires,
+            note: "Access tokens are minted on demand and never stored.",
           },
           null,
           2

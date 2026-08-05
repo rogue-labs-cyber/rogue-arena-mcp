@@ -1,5 +1,11 @@
 import { decodeJwt } from "jose";
-import { loadTokens, saveTokens, clearTokens, type StoredTokens } from "./keychain.js";
+import {
+  loadTokens,
+  saveTokens,
+  clearTokens,
+  type StoredTokens,
+  type ActiveTokens,
+} from "./keychain.js";
 import type { AuthProvider } from "./auth.js";
 import { execFileSync } from "node:child_process";
 
@@ -106,7 +112,7 @@ export async function login(hubUrl: string, clientId: string): Promise<void> {
       const tokenData = (await tokenRes.json()) as TokenResponse;
       const claims = decodeJwt(tokenData.access_token);
 
-      const tokens: StoredTokens = {
+      const tokens: ActiveTokens = {
         accessToken: tokenData.access_token,
         refreshToken: tokenData.refresh_token,
         expiresAt: Math.floor(Date.now() / 1000) + tokenData.expires_in,
@@ -114,6 +120,7 @@ export async function login(hubUrl: string, clientId: string): Promise<void> {
         username: String(claims["preferred_username"] ?? ""),
       };
 
+      // Persists the refresh half only — see StoredTokens in keychain.ts.
       await saveTokens(tokens);
       console.error(" done");
       console.error(`Logged in as ${tokens.username}. Token valid for ~30 days.`);
@@ -178,7 +185,7 @@ async function refreshAccessToken(
   hubUrl: string,
   clientId: string,
   refreshToken: string
-): Promise<StoredTokens> {
+): Promise<ActiveTokens> {
   const keycloakBaseUrl = getKeycloakBaseUrl(hubUrl);
   const tokenEndpoint = getTokenEndpoint(keycloakBaseUrl);
 
@@ -198,7 +205,7 @@ async function refreshAccessToken(
     const tokenData = (await res.json()) as TokenResponse;
     const claims = decodeJwt(tokenData.access_token);
 
-    const tokens: StoredTokens = {
+    const tokens: ActiveTokens = {
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       expiresAt: Math.floor(Date.now() / 1000) + tokenData.expires_in,
@@ -243,7 +250,7 @@ async function refreshAccessToken(
       if (retryRes.ok) {
         const tokenData = (await retryRes.json()) as TokenResponse;
         const claims = decodeJwt(tokenData.access_token);
-        const tokens: StoredTokens = {
+        const tokens: ActiveTokens = {
           accessToken: tokenData.access_token,
           refreshToken: tokenData.refresh_token,
           expiresAt: Math.floor(Date.now() / 1000) + tokenData.expires_in,
@@ -276,8 +283,8 @@ class RefreshError extends Error {
 export class KeycloakAuthProvider implements AuthProvider {
   private hubUrl: string;
   private clientId: string;
-  private currentTokens: StoredTokens;
-  private refreshPromise: Promise<StoredTokens> | null = null;
+  private currentTokens: ActiveTokens;
+  private refreshPromise: Promise<ActiveTokens> | null = null;
 
   // Circuit breaker state — split by error class
   private sessionDead = false; // terminal: 400/401 invalid_grant — session is gone, don't retry
@@ -287,7 +294,11 @@ export class KeycloakAuthProvider implements AuthProvider {
   constructor(hubUrl: string, clientId: string, tokens: StoredTokens) {
     this.hubUrl = hubUrl;
     this.clientId = clientId;
-    this.currentTokens = tokens;
+    // The access token is never persisted (see StoredTokens in keychain.ts),
+    // so a freshly-loaded session starts with none. expiresAt 0 makes the
+    // first getHeaders() take the refresh branch and mint one — the same
+    // mechanism invalidateAccessToken() uses.
+    this.currentTokens = { ...tokens, accessToken: "", expiresAt: 0 };
   }
 
   async getHeaders(): Promise<Record<string, string>> {

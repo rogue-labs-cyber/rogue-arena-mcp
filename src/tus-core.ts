@@ -212,16 +212,9 @@ export function startTusUpload(params: StartTusUploadParams): TusUploadHandle {
       }
     },
     onSuccess: () => {
-      // Vaults mutates upload.options.metadata.originalFileName on collision
-      // (generates `<name> copy N<ext>`). Read back so agents can reconcile
-      // the final persisted filename.
-      const finalName =
-        (upload.options.metadata as Record<string, string> | undefined)
-          ?.originalFileName ?? fileName;
-      state.fileName = finalName;
       state.bytesTransferred = fileStats.size;
       console.error(
-        `[rogue-arena-mcp] Upload complete [${transferId}]: ${finalName}`
+        `[rogue-arena-mcp] Upload complete [${transferId}]: ${fileName}`
       );
       finishTransfer(state, "completed");
     },

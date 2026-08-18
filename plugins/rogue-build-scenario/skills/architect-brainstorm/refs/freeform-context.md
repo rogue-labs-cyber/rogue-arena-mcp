@@ -12,11 +12,10 @@ Architect MCP tools are grouped by prefix. Use `discover_tools` to see full desc
 - **Machine tools** (`architect_machine_*`): Create/configure machines, assign users, set notes
 - **Plugin tools** (`architect_plugin_catalog_*` + `architect_assigned_plugin_*`): Search catalog, assign and configure plugins
 - **Forest tools** (`architect_forest_*`): Manage domain topology, events, trusts
-- **Exploit tools** (`architect_exploit_*`): Paths, hops, credentials, technique catalog, reachability
 - **File tools** (`architect_files_*`): Seed realistic workplace files on machines
 - **Deploy tools** (`architect_deploy_*`): Read-only deployment status and logs
 
-Note: Exploit and deploy tools are lazy-loaded. Call `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "exploit")` before first use. The available exploit tools are: `architect_exploit_technique_list`, `architect_exploit_plugin_find`.
+Note: Deploy tools are lazy-loaded. Call `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "deploy")` before first use.
 
 ## 2. Platform Hierarchy
 
@@ -48,7 +47,7 @@ DC count guidance: 1 DC per domain for small scenarios (<20 VMs), 2 for medium (
 
 **LAW: Call `architect_plugin_catalog_list_full` with the plugin's `pluginVersionId` BEFORE calling `architect_assigned_plugin_set_params`.** Field names vary between plugin versions — guessing produces silent misconfigurations that only surface at deployment. The same call also returns `addonConfigSamples[{ sampleId, name, notes, language }]` — the plugin's curated library of ready-to-deploy runtime config blobs.
 
-Workflow: (1) Install plugin via `architect_assigned_plugin_add`, (2) call `architect_plugin_catalog_list_full` to get exact param names, types, descriptions, CSV headers, AND `addonConfigSamples[]`, (3) for any `stringBlock`-shaped runtime config param (Ghosts timelines, C2 profiles, rule sets), scan `addonConfigSamples[].notes` for a story-match against the machine's purpose / assigned user / exploit-hop intent before authoring from scratch. On match, fetch via `architect_plugin_catalog_get_addon_config_sample({ sampleId })`, tweak in memory (substitute SAMs, hostnames, file paths), and pass the tweaked blob to `_set_params`. (4) Configure remaining params normally.
+Workflow: (1) Install plugin via `architect_assigned_plugin_add`, (2) call `architect_plugin_catalog_list_full` to get exact param names, types, descriptions, CSV headers, AND `addonConfigSamples[]`, (3) for any `stringBlock`-shaped runtime config param (Ghosts timelines, C2 profiles, rule sets), scan `addonConfigSamples[].notes` for a story-match against the machine's purpose / assigned user before authoring from scratch. On match, fetch via `architect_plugin_catalog_get_addon_config_sample({ sampleId })`, tweak in memory (substitute SAMs, hostnames, file paths), and pass the tweaked blob to `_set_params`. (4) Configure remaining params normally.
 
 DISTINCT from `architect_plugin_catalog_get_example` — that tool returns plugin USAGE examples (param patterns + sibling plugins + machine context from real scenarios). `architect_plugin_catalog_get_addon_config_sample` returns the CONFIG content the plugin operates on. Use `_get_example` to learn how to wire a plugin into a machine; use `_get_addon_config_sample` to learn what to put inside one of its `stringBlock` params.
 
@@ -104,7 +103,7 @@ See `refs/shared-rules.md` (Company Size Limits, Resource Allocation Defaults, S
 
 ### Tool Discovery & Subagents
 
-See `refs/shared-rules.md` (Default Tool Discovery, Haiku Subagent Dispatch Pattern, Large Generation Confirmation Gate) for full patterns. Common tools are pre-loaded; exploit and deploy tools need `discover_tools` first (see Section 1 note).
+See `refs/shared-rules.md` (Default Tool Discovery, Haiku Subagent Dispatch Pattern, Large Generation Confirmation Gate) for full patterns. Common tools are pre-loaded; deploy tools need `discover_tools` first (see Section 1 note).
 
 ### Content Policy
 
@@ -132,18 +131,6 @@ Every workstation with a primary user needs an autologon plugin. Without it, the
 
 Backstory enrichment follows a strict sequence: (1) shared VLAN events via `architect_vlan_manage_backstory`, (2) shared machine events via `architect_machine_manage_backstory(operation: 'generate_shared_events')`, (3) per-user events via `architect_machine_manage_backstory(operation: 'generate')` with 100+ character prompts. Later phases (relationships, files) depend on these existing first.
 
-### Crown Jewel
-
-The crown jewel is declared in `exploit.yml`'s top-level `crownJewel` block — YAML-only, not stored in the hub. The `crownJewel.machine` field names the endgame machine; `crownJewel.description` provides business context (dollar amounts, record counts, fine risk). In freeform mode, you can stamp a crown jewel breadcrumb onto a machine by calling `architect_machine_update` with `aiNotes: "Crown jewel: {description}"`. There is no hub API for crown jewel state — the YAML block is the single source of truth.
-
-### Exploit Path Constraints
-
-- Maximum 15 hops, 15 credentials, 5 variations per path
-- Call `architect_exploit_technique_list` and `architect_exploit_plugin_find` BEFORE designing any hop — every technique must come from a catalog result
-- Credential sub-types must match across a chain (4 canonical sub-types: `password`, `hash`, `ticket`, `key` — `password→password`, `hash→hash`, etc.)
-- Use different credential harvesting methods per hop and span all three `implementationType` values (`plugin`, `file_seeding`, `attacker_action`)
-- Paths should touch every domain on the canvas
-
 ### File Seeding Targets
 
 | Machine Type | Files Per Machine |
@@ -153,7 +140,7 @@ The crown jewel is declared in `exploit.yml`'s top-level `crownJewel` block — 
 | Domain Controller | 5-10 |
 | Local / utility | 3+ |
 
-Every workstation manifest includes 1-2 email artifacts (OST, PST, or saved .eml). Files must span all 4 date-decay tiers (current 0-7 days, recent 8-30, older 31-90, archive 91-365) with at least 1 file older than 180 days. Topic fields: 50+ characters with WHO/WHAT/WHY/WHEN. Vulnerable files (`isVulnerabilityFile: true`) are placed by the exploits phase, not by file seeding.
+Every workstation manifest includes 1-2 email artifacts (OST, PST, or saved .eml). Files must span all 4 date-decay tiers (current 0-7 days, recent 8-30, older 31-90, archive 91-365) with at least 1 file older than 180 days. Topic fields: 50+ characters with WHO/WHAT/WHY/WHEN.
 
 ### Common Operations Quick Reference
 
@@ -166,7 +153,5 @@ Every workstation manifest includes 1-2 email artifacts (OST, PST, or saved .eml
 - **Modify company context:** Read via `architect_canvas_get_context`, merge changes, write back via `architect_canvas_set_context` (single call, all sections included).
 - **Add a user to a workstation:** `architect_machine_manage_user` with full bpData (every field filled). Then install autologon plugin with the user's credentials.
 - **Seed files on a machine:** `architect_files_get_seeding_context` first to get user/machine context -> `architect_files_create` per file entry (batch up to 20 per call).
-- **Design an exploit path:** inventory techniques via `architect_exploit_technique_list` -> check VLAN connection rules via `architect_vlan_get` (zone + firewall rules show whether a path exists) -> commit hops to `exploit.yml` after user confirms plan. Canvas materializes from the YAML at apply time.
-- **Resume an exploit path:** read `exploit.yml` from the scenario directory for planning context -> read canvas state via `architect_canvas_get_overview` to see what has been materialized -> resume based on state.
 - **Check AD data:** DC plugin params hold the source of truth — use `architect_assigned_plugin_get_param` for CreateUsers/CreateOUs/CreateGroups, or `architect_canvas_global_search` with field hints.
 - **Validate infrastructure:** Read-only audit via `architect_canvas_get_overview` and per-machine `architect_machine_get`. Hand off to `architect-final-validate` for the full pre-deploy audit. Never mutates canvas state.

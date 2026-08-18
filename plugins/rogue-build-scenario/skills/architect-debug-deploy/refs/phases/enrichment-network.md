@@ -1,6 +1,6 @@
 # Enrichment: Network Phase — Reference Doc
 
-> **For:** architect-implementor Phase B (enrichment step — network)
+> **For:** flow-implement Phase B (enrichment step — network)
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 The network enrichment phase wires inter-VLAN connectivity for existing infrastructure — firewall rules, domain trust direction, traffic flow policies, and VLAN connections. This phase implements what the domains phase declared.

@@ -2,7 +2,7 @@
 
 > **Staging:** VLAN and machine backstories are staged per `refs/shared-rules.md`. Read the `architect_vlan_manage_backstory` description (path `staging/vlan-{vlanId}/backstory/`, named-section `events.json`) and `architect_machine_manage_backstory` description (path `staging/machine-{machineId}/backstory/`, named sections `workplace-events.json` + `workplace-relationships.json`). Per-user backstories use operation `set_backstory`; incremental operations (`add_event`, `add_relationship`) are NOT staged. The size-guard is 4 KB.
 
-> **For:** architect-implementor Phase B (enrichment step — backstory)
+> **For:** flow-implement Phase B (enrichment step — backstory)
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 Backstory is the narrative foundation the rest of enrichment builds on. It establishes shared workplace events across VLANs, per-user workplace histories, and machine notes that capture scenario intent. Runs after VLANs, machines, and user assignments exist.

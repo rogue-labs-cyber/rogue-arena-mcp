@@ -204,26 +204,6 @@ For every reference found, resolve against the appropriate DC's `CreateOUs` / `C
 
 **Cross-link with Check 1** — Check 1's one-liner about OU paths in domain-join plugins is satisfied by this check; this is the enforced walk. Check 1 may still emit OU findings if it spots them, but Check 18 owns the systematic sweep.
 
-## Exploit Path Checks
-
-### 1. Privilege Chain
-Each hop's outputPrivilege meets or exceeds the next hop's inputPrivilege. Domain context matters: `domain_admin` in `corp.local` is NOT the same as `domain_admin` in `other.local`.
-
-### 2. Credential Flow
-Credentials are created before they are used (createdInHop < usageHop). Each credentialRef is unique. All credentialUsage references point to a valid earlier discovery.
-
-### 3. Technique Availability
-Each abstract technique maps to at least one plugin in the catalog. Plugin OS compatibility matches the target machine.
-
-### 4. Network Reachability
-Source machine can reach target machine for each hop. Cross-VLAN hops require a VLAN connection. If topology data is unavailable, mark as UNVERIFIED warning (not FAIL).
-
-### 5. Domain Trust Paths
-Cross-domain hops have valid trust relationships. Trust type supports the traversal technique (e.g., SID history needs parent-child trust). Trust direction is correct.
-
-### 6. Difficulty Compliance
-Techniques match the specified difficulty level. The validator queries the catalog to verify technique-to-difficulty mapping.
-
 ## Infrastructure Error Codes
 
 | Code | Meaning | Produced By |
@@ -262,19 +242,6 @@ Techniques match the specified difficulty level. The validator queries the catal
 | `MISSING_DEPENDENCY_CONNECTION` | Source and target machines of a cross-machine dependency live on different VLANs with no connection configured | Check 17 |
 | `UNRESOLVED_PLUGIN_OU` | OU referenced in a plugin param (or inline script) is not in the appropriate DC's `CreateOUs` (or any trusted DC's). Common cause: `Join Machine to Domain` targeting an OU the DC never creates | Check 18 |
 | `UNRESOLVED_PLUGIN_GROUP` | AD group referenced in a plugin param (or inline script) is not in the appropriate DC's `CreateGroups`, and is not a built-in group | Check 18 |
-
-## Exploit Path Error Codes
-
-| Code | Meaning | Produced By |
-|---|---|---|
-| `MISSING_EXPLOIT_PATH_PLAN` | Canvas implies an exploit path (crown jewel note, scenario context) but no `EXPLOIT PATH ROLE:` stamps exist | SKILL §3 (Detection) |
-| `EXPLOIT_TRACE_GAP` | Non-contiguous hop numbers in `aiNotes` stamps | SKILL §3.A (Trace walk) |
-| `INVALID_PRIVILEGE_CHAIN` | Privilege level does not flow correctly between hops | Exploit Check 1 |
-| `CREDENTIAL_FLOW_ERROR` | Credential used before it was discovered | Exploit Check 2 |
-| `TECHNIQUE_UNAVAILABLE` | Technique not in catalog or incompatible OS | Exploit Check 3 |
-| `UNREACHABLE_HOP` | Source cannot reach target (network/VLAN issue) | Exploit Check 4 |
-| `INVALID_TRUST_PATH` | Trust relationship does not support the traversal | Exploit Check 5 |
-| `DIFFICULTY_VIOLATION` | Technique does not match the requested difficulty | Exploit Check 6 |
 
 ## Reading the Canvas (efficient prep)
 

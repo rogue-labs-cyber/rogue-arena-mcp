@@ -131,7 +131,7 @@ When `pluginVersionId` is present, MCP tools extend the local work loop:
 | Write/edit YAML | Save to `ansible_run.yml` | Also push via `plugin_dev_update_yaml` |
 | Add/change params | Update `project.json` params | Also call `plugin_dev_add_param` / `plugin_dev_update_param` / `plugin_dev_delete_param` |
 | Update name/desc/type | Update `project.json` | Also call `plugin_dev_update_metadata` |
-| Upload resources | Save to `for_plugin_vault/` | Upload via `plugin_dev_upload_to_vault(pluginVersionId, localFilePath)` — async TUS resumable transfer. Returns `transferId`; poll `plugin_dev_transfer_status` to track progress. Vault may uniquify filename on collision; final name in poll response. |
+| Upload resources | Save to `for_plugin_vault/` | Upload via `plugin_dev_upload_to_vault(pluginVersionId, localFilePath)` — async TUS resumable transfer. Returns `transferId`; poll `plugin_dev_transfer_status` to terminal status. A claimed vault name fails with `VAULT_NAMESPACE_CONFLICT`; it never overwrites or silently renames. For an intentional replacement, list the vault, delete the exact existing file, then retry the upload. |
 | Check vault contents | `ls for_plugin_vault/` | Also call `plugin_dev_list_vault_files` |
 | Delete vault files | `rm` locally | Also call `plugin_dev_delete_vault_file` |
 | Add/edit/reorder addon config samples | Update `project.json` `addonConfigSamples[]` + write/edit body in `.sample/<name>.<ext>` | Also call `plugin_dev_add_addon_config_sample` / `plugin_dev_update_addon_config_sample` |

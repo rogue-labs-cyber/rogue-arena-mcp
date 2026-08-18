@@ -2,7 +2,7 @@
 
 > **Staging:** File content is staged per `refs/shared-rules.md`. Read the `architect_files_create` description for path templates. Text-based fileTypes (plaintext, script, config, email, log) use the concat pattern (single fragment, typically `01-body.<ext>`); structured fileTypes (docx, xlsx, pptx) use named-sections — one fragment per sheet / section / slide (e.g. `sheet-sales.json`, `section-intro.json`, `slide-01.json`). Content over 16 KB (JSON-stringified) is rejected.
 
-> **For:** architect-implementor Phase B (enrichment step — files)
+> **For:** flow-implement Phase B (enrichment step — files)
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 File seeding generates realistic workplace file manifests that reflect each user's personality, filing habits, and workplace history. Files are the artifacts a forensic investigator would find on a real machine.
@@ -39,7 +39,7 @@ For 3+ machines, spawn haiku subagents in parallel (one per machine) — each ma
 
 **Per-machine context block:** machineNodeId, hostname, machine role, assigned user profile (bio, hobbies, filingHabits, workStyle, department), target file count for the machine type, installed services/plugins from `architect_files_get_seeding_context`.
 
-**Explicit task boundaries:** The implementor must not touch files on other machines. The implementor must not generate credential or SSH-key files (those belong to the exploits phase). The implementor must not reference services that are not installed on the target machine.
+**Explicit task boundaries:** The implementor must not touch files on other machines. The implementor must not reference services that are not installed on the target machine.
 
 ## Checklist
 
@@ -56,4 +56,4 @@ For 3+ machines, spawn haiku subagents in parallel (one per machine) — each ma
 
 - The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
 - For 5+ machines, the implementor must confirm scope before generating — see [shared-rules.md -- Large Generation Confirmation Gate](../shared-rules.md#large-generation-confirmation-gate).
-- Vulnerable files (credentials, SSH keys, breadcrumbs) with `isVulnerabilityFile: true` are placed by the exploits phase, not here.
+- Do not seed credential dumps, SSH keys, or other `isVulnerabilityFile: true` breadcrumbs here.

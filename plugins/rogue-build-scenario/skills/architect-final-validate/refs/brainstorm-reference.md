@@ -86,33 +86,6 @@ Use bulleted markdown, NOT code blocks. Keep it clean and scannable:
 ╚════════════════════════════════════════════════════════════════╝
 ```
 
-### Gate 4 — Exploit Path Visual
-
-```
-╔══════════════════════════════════════════════════════╗
-║  Path: The Phantom Heist (hard)                      ║
-╠══════════════════════════════════════════════════════╣
-║                                                      ║
-║  [External]                                          ║
-║      │                                               ║
-║      ▼ Nostromo web server vuln                      ║
-║  [Holonet Gateway]                                   ║
-║      │                                               ║
-║      ▼ Phishing via mail relay                       ║
-║  [The Sub-Level]                                     ║
-║      │                                               ║
-║      ▼ Jen's DA creds + Moss's passwords.txt         ║
-║  [The Sub-Level → Cygnus R&D Lab]                    ║
-║      │                                               ║
-║      ▼ Cross-domain pivot via trust                  ║
-║  [Imperial Data Vault]                               ║
-║      │                                               ║
-║      ▼ Lateral move to file server                   ║
-║  ★ Project Phantom Schematics                        ║
-║                                                      ║
-╚══════════════════════════════════════════════════════╝
-```
-
 ---
 
 ## Defaults Block
@@ -207,7 +180,7 @@ State calibration in the first response:
 |---------|---------|
 | Combining questions in one message | Ask exactly one, then stop |
 | Skipping a gate visual | Every phase ends with its visual + confirmation |
-| Offering "just run with it" / "show me the spec" | Each phase has its own gate. The 4 YML files are the spec. |
+| Offering "just run with it" / "show me the spec" | Each phase has its own gate. The 3 YML files are the spec. |
 | Collapsing phases | Every phase gets announced, presented, confirmed separately |
 | Accepting "you decide" passively | Make opinionated creative choices |
 | Generic company identities | Enrich with narrative hooks |
@@ -231,9 +204,10 @@ digraph brainstorm {
     gate2 [label="GATE 2 — The Cast\n→ scenario_part2.yml" shape=doubleoctagon];
     plugins [label="Search plugin catalog\nMap + fill defaults"];
     gate3 [label="GATE 3 — The Build\n→ scenario_part3.yml" shape=doubleoctagon];
-    q5 [label="Want exploits?"];
-    gate4 [label="GATE 4 — The Heist\n→ exploit.yml" shape=doubleoctagon];
-    handoff [label="Handoff to implementor" shape=doublecircle];
+    validate [label="flow-validate.md"];
+    confirm [label="Build the canvas?"];
+    implement [label="flow-implement.md"];
+    finalv [label="/architect-final-validate" shape=doublecircle];
 
     q1 -> q2 -> q3 -> q4 -> gate1;
     gate1 -> gate1 [label="tweaks"];
@@ -243,10 +217,9 @@ digraph brainstorm {
     gate2 -> plugins [label="confirmed"];
     plugins -> gate3;
     gate3 -> gate3 [label="tweaks"];
-    gate3 -> q5 [label="confirmed"];
-    q5 -> gate4 [label="yes"];
-    q5 -> handoff [label="no"];
-    gate4 -> gate4 [label="tweaks"];
-    gate4 -> handoff [label="confirmed"];
+    gate3 -> validate [label="confirmed"];
+    validate -> confirm;
+    confirm -> implement [label="yes"];
+    implement -> finalv;
 }
 ```

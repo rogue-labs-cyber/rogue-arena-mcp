@@ -52,7 +52,6 @@ Before generating output that will be large or time-consuming, PAUSE and confirm
 | File manifest across 5+ machines | File seeding for a full VLAN | "I'll generate file manifests for 8 machines (~100+ file entries with rich topics). This will take a while. Want me to proceed, or do a subset first?" |
 | Relationship generation for 10+ users | Full relationship weave across 2+ VLANs | "There are 14 assigned users across 2 VLANs. I'll generate relationships + collaborative file artifacts for all of them. OK to proceed?" |
 | Forest events for 3+ domains | Multi-domain forest with backstories and cross-domain relationships | "This forest has 4 domains — I'll generate 6+ forest events with backstories, domain portraits, and cross-domain relationships. OK?" |
-| Exploit chain with 5+ hops | Multi-hop lateral movement path across VLANs | "This exploit path has 7 hops across 3 VLANs with credential chains and breadcrumbs at each hop. This is a large generation. Proceed?" |
 
 ### How to Confirm
 
@@ -121,7 +120,7 @@ Some plugins may auto-set higher RAM/CPU on installation. Check `architect_canva
 - Application Servers: Start at `.20`, increment sequentially
 - Workstations: Start at `.50`, increment sequentially
 
-**Static-IP subnet check.** When a plugin param sets the machine's own IP, call `architect_vlan_get` for the parent VLAN first and verify the IP belongs to `subnetCidr`. Read the param's description from the catalog before checking — if it indicates the IP targets a remote network (firewall rule, DNS forwarder, NAT destination, exploit hop target), skip the verification. Remote-network IPs are intentionally extra-VLAN.
+**Static-IP subnet check.** When a plugin param sets the machine's own IP, call `architect_vlan_get` for the parent VLAN first and verify the IP belongs to `subnetCidr`. Read the param's description from the catalog before checking — if it indicates the IP targets a remote network (firewall rule, DNS forwarder, NAT destination), skip the verification. Remote-network IPs are intentionally extra-VLAN.
 
 ## Server File Paths
 
@@ -374,7 +373,6 @@ When calling multiple MCP tools in sequence, batch-fetch their schemas with a si
 
 **Specialty extras (loaded by the sub-skill that needs them):**
 
-- exploits: `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "exploit")` for exploit technique list, hop, credential, and reachability tools.
 - debug-deploy: `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "deploy")` for the 6 LIVEDEPLOY tools.
 
 **Plugin-catalog tool naming — `_get_example` vs `_get_addon_config_sample`.** These two are easy to confuse and serve different purposes:

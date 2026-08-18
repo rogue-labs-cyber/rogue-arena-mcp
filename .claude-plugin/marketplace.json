@@ -7,13 +7,13 @@
     {
       "name": "rogue-build-scenario",
       "description": "Build and manage Rogue Arena scenarios — brainstorm company context and infrastructure via YML blueprints, implement via MCP tools, freeform canvas editing, and deployment debugging",
-      "version": "2.2.1",
+      "version": "2.2.3",
       "source": "./plugins/rogue-build-scenario"
     },
     {
       "name": "rogue-plugin-dev",
       "description": "Local-first Ansible plugin development — brainstorm projects, research offline install approaches, and iterate on Ansible YAML with human-driven builds",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "source": "./plugins/rogue-plugin-dev"
     },
     {

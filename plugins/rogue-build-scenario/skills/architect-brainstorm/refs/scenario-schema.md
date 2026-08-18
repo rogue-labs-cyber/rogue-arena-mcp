@@ -1,22 +1,19 @@
 # Scenario YML Schema Reference
 
 > **For:** architect-brainstorm (loaded JIT when writing YML files)
-> **Purpose:** Examples and guidance for the four brainstorm output files
+> **Purpose:** Examples and guidance for the three brainstorm output files
 
-The brainstorm produces four files:
+The brainstorm produces three files:
 
 | File | Nickname | Gate | Contents |
 |------|----------|------|----------|
 | scenario_part1.yml | "The Shape" | Gate 1 | Company, domains with nested VLANs, machine roles |
 | scenario_part2.yml | "The Cast" | Gate 2 | Characters with backgrounds, hobbies, security habits |
 | scenario_part3.yml | "The Build" | Gate 3 | Plugin mapping, domain relationships, substitutions, defaults |
-| exploit.yml | "The Heist" | Gate 4 | Crown jewel declaration, attack paths, phases |
 
 ---
 
 ## scenario_part1.yml — "The Shape"
-
-> **Phase 4 greenfield entities** — VLANs and machines created by Phase 4's greenfield flow are stamped with `authoredIn: phase_4_greenfield`. See the provenance marker explanation at the end of the `## scenario_part3.yml` section.
 
 Infrastructure skeleton. Company identity, domains with nested VLANs, machine roles. No plugins, no characters, no defaults.
 
@@ -30,7 +27,7 @@ Key rules:
 - Machines are listed by **role** (not plugin) with optional `note` for user intent
 - Use `count` for multiples of the same role (e.g., workstation ×6)
 - `trusts` are top-level (between domains), not nested
-- No `exploit_paths`, no `defaults`, no `plugin_mapping` — those belong in later files
+- No `defaults`, no `plugin_mapping` — those belong in later files
 - All `fqdn` values MUST end in `.local` (e.g., `sienar.local`, `cygnus.sienar.local`) — Rogue Arena lab convention, enforced by the platform at write time
 - Standalone VLANs with no AD domain use `fqdn: null` and `type: standalone`
 
@@ -124,8 +121,6 @@ trusts:
 ---
 
 ## scenario_part2.yml — "The Cast"
-
-> **Phase 4 greenfield entities** — Characters created by Phase 4's greenfield flow are stamped with `authoredIn: phase_4_greenfield`. See the provenance marker explanation at the end of the `## scenario_part3.yml` section.
 
 Characters only. One per workstation. Grouped by domain.
 
@@ -311,321 +306,6 @@ defaults:
   shared_events_per_vlan: 4
 ```
 
-### `authoredIn` provenance marker
-
-Entities created by Phase 4's greenfield flow (option D) are stamped with:
-
-```yaml
-authoredIn: phase_4_greenfield
-```
-
-This marker is set on VLANs, machines, characters, and plugin assignments materialized mid-Phase-4. Scenario teardown walks canvas, not YML, so greenfield entities are torn down correctly. The validator also uses this marker to identify Phase-4-authored entities during the canvas↔YML reconciliation pre-check.
-
-Phase 1 / 2 / 3-authored entities do NOT carry this marker (absence implies standard authoring).
-
----
-
-## exploit.yml — "The Heist"
-
-Fully self-contained exploit plan. The brainstorm declares EVERYTHING the attack chain needs — users, passwords, file locations, technique chain, breadcrumbs. The implementor's job is pure execution: build exactly what this file says.
-
-Key rules:
-- The top-level `crownJewel` block is the only typed crown jewel state — it is YAML-only and is NOT stored in the hub
-- Paths use real technique names from the platform's exploit technique catalog (validated via MCP)
-- Machine flow uses hostnames/labels from part1 and part3
-- Reachability between hop pairs verified via MCP before writing
-- Characters from part2 explain WHY each vulnerability exists
-- **Credentials are declared in this file** — username, password, where they live, who finds them, who uses them. The implementor creates these users on top of the part2 cast and seeds the credential locations exactly as specified.
-- **No "implementor figures it out" fields** — the brainstorm + user own every detail
-
-```yaml
-schema_version: 1
-
-meta:
-  name: "Sienar Fleet Systems — Attack Paths"
-  created: 2026-04-15
-  canvas_id: null
-  scenario_ref: "scenario_part1.yml"
-
-crownJewel:
-  machine: VAULT-FS-01           # must match an existing machine on canvas
-  type: data_repository          # free-text; suggested values: critical_server, application_stack, isolated_vlan, data_repository, control_system
-  description: "Classified next-gen stealth fighter prototype files on the file server — $200M Imperial contract dependent on IP confidentiality"
-
-# All accounts the exploit chain requires. These are created on top of
-# the part2 character cast. Some may overlap with cast members (e.g.,
-# Jen's domain user) — list them here regardless so the chain is self-contained.
-exploit_users:
-  - id: "user-fred-ftp"
-    domain: "sienar.local"
-    username: "fred"
-    password: "Password123"
-    samaccountname: "fred"
-    groups: ["Domain Users"]
-    description: "Service account Ryan created for FTP backups, never disabled"
-    overlaps_with_cast: false
-
-  - id: "user-jen-sublvl"
-    domain: "sienar.local"
-    username: "jen"
-    password: "Photoshop2019!"
-    samaccountname: "jen"
-    groups: ["Domain Users", "SUBLVL-WS-04 Local Admins"]
-    description: "Jen's domain account — also local admin on SUBLVL-WS-04 from Photoshop install"
-    overlaps_with_cast: true              # Jen is in part2
-
-# All credentials referenced by hops. Each has a discovery point (where
-# the attacker finds it) and a use point (which hop consumes it).
-credentials:
-  - id: "cred-hop1-fred-password"         # server-generated ref: cred-hop{N}-{account}-{sub}
-    user_ref: "user-fred-ftp"
-    type: password                         # password | hash | ticket | key
-    discovered_at_hop: 1
-    used_at_hop: 2
-    discovery_location:
-      machine: "HOLO-FTP-01"
-      file_path: "/opt/ftp/sync.conf"
-      content_hint: "USER=fred\nPASS=Password123  # for nightly backups - Ryan H., 2019"
-
-  - id: "cred-hop3-jen-password"
-    user_ref: "user-jen-sublvl"
-    type: password
-    discovered_at_hop: 3
-    used_at_hop: 4
-    discovery_location:
-      machine: "SUBLVL-WS-04"
-      file_path: "C:\\Users\\jen\\Desktop\\photoshop_install_notes.txt"
-      content_hint: "domain login: jen / Photoshop2019! (saved so I dont forget)"
-
-paths:
-  - name: "The Phantom Heist"
-    difficulty: hard
-    entry: external
-    includes_phishing: true
-    phishing_target_vlan: "The Sub-Level"
-    crownJewel:
-      machine: "VAULT-FS-01"
-      type: data_repository
-      description: "Contains R&D project schematics and intellectual property for Phantom division"
-    reachability_verified: true
-    narrative: |
-      Attacker compromises the FTP server in the DMZ, finds Fred's
-      hardcoded backup creds, pivots to Jen's workstation, dumps her
-      Photoshop install note with her domain password, uses cross-domain
-      trust to reach Cygnus, then exfils Project Phantom schematics.
-
-    hops:
-      - hop: 1
-        source_machine: "external"
-        target_machine: "HOLO-FTP-01"
-        technique: "vsftpd_backdoor"          # from architect_exploit_technique_list
-        implementation_type: plugin           # plugin | attacker_action | file_seeding
-        privilege: "none → local_user"
-        trust_boundary_crossed: null          # TrustBoundaryCrossingEnum value or null
-        hop_environment_zone: "dmz"           # dmz | internal | isolated | air_gapped
-        narrative_context: "Ryan set up FTP during the 2019 acquisition integration rush (cites architect_forest_get_events.trustHistory) and hardcoded backup creds per his known habit of prioritizing speed over security (cites architect_machine_get.backstory.securityHabits for ryan)"
-        character_sam_account_name: "ryan"    # soft ref to scenario_part2 character
-        credential_discovers: "cred-hop1-fred-password"   # ref is server-generated (cred-hop{N}-{account}-{sub})
-
-      - hop: 2
-        source_machine: "HOLO-FTP-01"
-        target_machine: "SUBLVL-WS-04"
-        technique: "make_token"
-        implementation_type: attacker_action
-        privilege: "local_user → local_admin"
-        trust_boundary_crossed: null
-        hop_environment_zone: "internal"
-        narrative_context: "Fred's account retains local admin on Sub-Level workstations from old IT provisioning scripts that were never cleaned up (cites architect_machine_get.backstory.securityHabits for fred)"
-        character_sam_account_name: "fred"
-        credential_uses: "cred-hop1-fred-password"
-
-      - hop: 3
-        source_machine: "SUBLVL-WS-04"
-        target_machine: "SUBLVL-WS-04"       # same machine, file discovery
-        technique: "credentials_in_share"
-        implementation_type: file_seeding
-        privilege: "local_admin → local_admin"
-        trust_boundary_crossed: null
-        hop_environment_zone: "internal"
-        narrative_context: "Jen saves her domain password in a desktop note 'so she doesn't forget' — documented in scenario_part2 security_habits (cites architect_machine_get.backstory.securityHabits for jen)"
-        character_sam_account_name: "jen"
-        credential_discovers: "cred-hop3-jen-password"
-
-      - hop: 4
-        source_machine: "SUBLVL-WS-04"
-        target_machine: "CYG-WS-01"
-        technique: "make_token"
-        implementation_type: attacker_action
-        privilege: "local_admin → domain_user"
-        trust_boundary_crossed: child_to_parent   # TrustBoundaryCrossingEnum
-        hop_environment_zone: "internal"
-        narrative_context: "Bidirectional trust was never hardened after the Cygnus acquisition — cites architect_forest_get_events.trustHistory for the sienar.local / cygnus.sienar.local parent-child trust"
-        character_sam_account_name: "jen"
-        credential_uses: "cred-hop3-jen-password"
-
-      - hop: 5
-        source_machine: "CYG-WS-01"
-        target_machine: "VAULT-FS-01"
-        technique: "credentials_in_share"
-        implementation_type: file_seeding
-        privilege: "domain_user → domain_user"
-        trust_boundary_crossed: null
-        hop_environment_zone: "internal"
-        narrative_context: "Roy is the only person who knows where the files are and left the share open — cites architect_machine_get.backstory.securityHabits for roy (open SMB share 'for testing')"
-        character_sam_account_name: "roy"
-        credential_uses: "cred-hop3-jen-password"
-
-# Discovery breadcrumbs — files placed during build to guide students
-breadcrumbs:
-  - hop: 1
-    machine: "HOLO-FTP-01"
-    file: "/opt/ftp/sync.conf"
-    purpose: "Reveals fred's creds + lateral movement target"
-  - hop: 3
-    machine: "SUBLVL-WS-04"
-    file: "C:\\Users\\jen\\Desktop\\photoshop_install_notes.txt"
-    purpose: "Reveals jen's domain creds for cross-VLAN pivot"
-```
-
-**Mapping note:** The YAML field `narrative_context` on each hop maps to `ExploitPathHop.narrativeContext` at implementor write-time. The `character_sam_account_name` field is a soft reference to a character in `scenario_part2.yml` — resolved by samAccountName match at read time against `architect_machine_get` output. There is no FK constraint on this field. `credentialRef` values in the `credentials:` and `credential_discovers` / `credential_uses` fields are server-generated — you declare the account + hop, the server picks the ref.
-
-### `crownJewel` (top-level, required)
-
-Author-only declaration of the scenario's trophy machine. Written by Phase 4 during the Crown Jewel fork. Not stored in the hub — consumed by `architect-validator` and optionally stamped into a machine note by `architect-implementor`.
-
-```yaml
-crownJewel:
-  machine: DM-SQL-01           # must match an existing machine on canvas
-  type: data_repository        # free-text; suggested values: critical_server, application_stack, isolated_vlan, data_repository, control_system
-  description: "Finance quarterly close database — contains M&A projections"
-```
-
-**Validator check (Group B):** `crownJewel.machine` must exist on canvas AND match the final hop's `machineTo`.
-
----
-
-### New top-level fields (Phase 4 conversational authoring)
-
-```yaml
-# Optional — present only if the user provided learning objectives in Phase 4 preamble.
-learningObjectives:
-  - "Credential harvesting from memory via Mimikatz"
-  - "Pass-the-hash for lateral movement"
-  - "Kerberoasting"
-
-# Optional — list of domain FQDNs declared in Phase 1 that intentionally stay untouched
-# by any hop (red-herring domains, decoys). Validator skips invariant #5 for these.
-intentionallyUntouchedDomains:
-  - "warehouse.dundermifflin.local"
-
-# Path-level privilege arc selection. One of: monotonic, non_monotonic, dip_and_rise
-# (see enum table below for descriptions of each).
-privilegeArcShape: non_monotonic
-
-# Required — bypass decisions surfaced during per-hop audit.
-# Each bypass found during Phase 4 gets one entry with a user-chosen decision.
-# Note: camelCase key names (discoveredAtHop, etc.) are a Phase 4 convention;
-# legacy credentials block uses snake_case (discovered_at_hop). Both are valid
-# in their respective namespaces.
-bypassDecisions:
-  - bypass: "Parent-DA walks straight into child via BUILTIN\\Administrators"
-    discoveredAtHop: 5
-    decision: close        # one of: close, bonus_shortcut, red_herring, ignore
-    rationale: "Compliance memo — segregation of duties audit finding"
-    implementorNotes:      # only populated when decision=close
-      - type: machine_config
-        machine: CHILD-DC-01
-        intent: "Remove Enterprise Admins from BUILTIN\\Administrators"
-        resolvesTo:
-          pluginId: "run_powershell_script"
-        details: "Explicit group membership scrub"
-  # Non-close decisions still carry rationale (captures author intent for future maintainers).
-  - bypass: "Authenticated Users can read \\\\FS-01\\Helpdesk$"
-    discoveredAtHop: 3
-    decision: bonus_shortcut
-    rationale: "Intentional alternate path for thorough students"
-```
-
-### New per-hop fields
-
-> **Naming style note.** New Phase 4 fields use camelCase (`hopNumber`, `machineFrom`, `machineTo`, etc.). Legacy fields on existing hops (`hop`, `source_machine`, `target_machine`, etc.) remain in their snake_case form for backward compatibility — see the baseline hop example earlier in this `exploit.yml` section. When extending an existing `exploit.yml` file, match the existing file's style. New `exploit.yml` files authored via Phase 4 use camelCase throughout.
-
-```yaml
-hops:
-  - hopNumber: 3
-    # ... existing fields ...
-
-    # Optional — only present when learningObjectives are set at the path level.
-    # Ties the hop to one or more preamble learning objectives.
-    teachingObjective: "Kerberoasting — SPN enumeration to TGS-REQ to hashcat"
-
-    # Optional — only present when the user asserted an uncataloged technique
-    # and Claude skipped the 5-source walk.
-    expertDeclaration: "User asserted ESC1 is uncataloged; 5-source walk skipped"
-
-    # Optional — present only when this hop cites Run PowerShell Script or Run Bash Script
-    # AND the path is at/over the escape-hatch cap. Validator enforces: if the hop
-    # exceeds the cap, this field MUST be present with a non-empty reason.
-    escapeHatchOverride: "Novel Linux→Windows bridge via xrdp; no catalog equivalent"
-
-    # Required when the hop needs setup; omit entirely if catalog actions suffice.
-    # Typed implementor notes consumed by architect-implementor.
-    implementorNotes:
-      - type: machine_config           # one of 7 types, see enum below
-        machine: DM-DC-01
-        intent: "Create AD service account svc_sql with kerberoastable SPN"
-        resolvesTo:
-          techniqueId: "attacker_action:kerberoasting"
-        details: "Weak password (e.g. Summer2023!). SPN: MSSQLSvc/db01.corp.local:1433."
-        suggestedPlugin: "Run PowerShell Script"
-      - type: file_seed
-        machine: DM-WKS-01
-        intent: "Plant breadcrumb pointing student at svc_sql as kerberoast target"
-        resolvesTo:
-          fileTypeEnum: "txt"
-        details: "README.txt in Jim's documents mentioning 'backup script runs as svc_sql'"
-        depth: surface                 # one of: surface, middle, deep (file_seed only)
-```
-
-### `implementorNotes` type enum (7 values)
-
-| Type | Purpose | Example |
-|------|---------|---------|
-| `machine_config` | Change machine state (create account, set registry, set SPN, ACL chain) | `"Create svc_sql with SPN MSSQLSvc/db01"` |
-| `plugin_assignment` | Map a plugin to a machine if not already mapped | `"Add Enable RDP plugin to WKST-03"` |
-| `plugin_param` | Set a specific param on an already-mapped plugin | `"Set adcs.template.esc1_enabled=true on RESEARCH-DC"` |
-| `file_seed` | Plant a credential-bearing file. Optionally specify `depth: surface \| middle \| deep` | `"Plant .conf with DB creds in Jim's Documents"` |
-| `credential_setup` | Create or configure a credential | `"Create cached logon session for helpdesk_tech1 on WKST-07"` |
-| `network_config` | Open a port, enable a service, configure firewall | `"Install xrdp + open 3389 on BASTION-01"` |
-| `unresolvable_requires_user_input` | No catalog resolution possible; implementor routes back to user via ask-user signal | `"Need exact SID value for forged golden ticket"` |
-
-### Required fields on every note
-
-- `machine` — target hostname. MUST exist on canvas (validator checks).
-- `intent` — one-line statement of what this accomplishes for the hop.
-- `resolvesTo` — reference to a catalog artifact: one of `pluginId`, `techniqueId`, `fileTypeEnum`. OR use `type: unresolvable_requires_user_input` (then `resolvesTo` is omitted). Free-floating notes without a resolution target are rejected by validator.
-- `details` — free-text sketch. Pseudocode, values, paths. NOT a full script.
-
-### Optional fields
-
-- `suggestedPlugin` — pointer to catalog plugin, typically `"Run PowerShell Script"` or `"Run Bash Script"` for custom setup.
-- `depth` (only on `type: file_seed`) — one of `surface`, `middle`, `deep`. Same credential information layered across tiers; novice students find surface, thorough reach deep.
-
-### `bypassDecisions.decision` enum (4 values)
-
-- `close` — actively remove the bypass; `implementorNotes` populated with the closure steps.
-- `bonus_shortcut` — intentionally leave open as alternate path; validator tags and skips drift checks.
-- `red_herring` — convert to misleading dead end; implementor builds the decoy.
-- `ignore` — author aware but taking no action; logged for posterity.
-
-### `privilegeArcShape` enum (3 values)
-
-- `monotonic` — privilege only rises. Simplest.
-- `non_monotonic` — rises, dips into non-domain zone, rises again. Pedagogically rich on mixed canvases.
-- `dip_and_rise` — high-priv Windows drops to local_user on Linux, re-escalates via sudo/SUID.
-
----
-
 ## Update Mode — Merge Semantics
 
 When scenario files are used to update an existing canvas:
@@ -641,7 +321,6 @@ When scenario files are used to update an existing canvas:
 | `vlans[].machine_count` | **Delta** — if VLAN exists and count differs, add/remove machines to match |
 | `plugin_mapping[]` | **Match by vlan + role** — present mappings updated, absent untouched |
 | `characters[]` (part2) | **Replace** — if present, full character regeneration |
-| `exploit_paths` | **Replace** — if present, re-plan exploits |
 
 To delete a VLAN or domain, use the `delete: true` marker:
 ```yaml

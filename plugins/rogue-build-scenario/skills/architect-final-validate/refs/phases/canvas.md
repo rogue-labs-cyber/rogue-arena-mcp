@@ -1,15 +1,15 @@
 # Canvas Phase — Reference Doc
 
-> **For:** architect-implementor Phase B (canvas context step)
+> **For:** flow-implement Phase B (canvas context step)
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 ---
 
 ## Overview
 
-The canvas phase is the first phase of the build cascade. No upstream dependencies. It produces company profile, leadership team, and technical infrastructure naming decisions consumed by all downstream phases (domains, machines, enrichment, exploits).
+The canvas phase is the first phase of the build cascade. No upstream dependencies. It produces company profile, leadership team, and technical infrastructure naming decisions consumed by all downstream phases (domains, machines, enrichment).
 
-The canvas phase brainstorms company context through a focused discovery session, then generates the foundational canvas blueprint — company profile, departments, leadership team, and technical infrastructure. Everything downstream (domains, VLANs, machines, files, exploit paths) builds on what this phase produces.
+The canvas phase brainstorms company context through a focused discovery session, then generates the foundational canvas blueprint — company profile, departments, leadership team, and technical infrastructure. Everything downstream (domains, VLANs, machines, files) builds on what this phase produces.
 
 ## Core Rules
 

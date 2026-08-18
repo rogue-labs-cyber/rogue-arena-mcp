@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { Upload } from "tus-js-client";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
@@ -163,7 +162,6 @@ const ArchitectVaultUploadSchema = z
   .object({
     machineId: z.string().uuid(),
     localFilePath: z.string().min(1),
-    vaultSubPath: z.string().optional(),
   })
   .strict();
 
@@ -291,9 +289,9 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
       "Upload a local file (exe, zip, binary, any file type) into a machine's vault in the " +
       "scenario-builder canvas. Machine vault is created by Apply Plan — call this tool " +
       "post-Apply; pre-Apply draft machines have no vault and the tool returns VAULT_NOT_FOUND. " +
-      "MVP only supports uploads to vault root (vaultSubPath='/'). If a file with the same name " +
-      "exists in the root, vaults uniquifies to '<name> copy N<ext>' (up to 100 tries); poll " +
-      "architect_transfer_status to read the final persisted filename. " +
+      "Uploads land at the vault root. If that name is already claimed there, the transfer " +
+      "fails instead of overwriting or renaming either file; poll architect_transfer_status " +
+      "for terminal status `failed` and error code `VAULT_NAMESPACE_CONFLICT`. " +
       "Starts the transfer in the background and returns immediately with a transferId. " +
       "Poll architect_transfer_status every 10-15 seconds; cancel via architect_transfer_cancel. " +
       "**Uploading a file is not sufficient to deliver it to the VM.** After uploading, apply the \"File Copy\" plugin so the file lands on the target at deploy time: " +
@@ -313,10 +311,6 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
           type: "string",
           minLength: 1,
           description: "Absolute path to the file on the local machine",
-        },
-        vaultSubPath: {
-          type: "string",
-          description: "Folder inside the vault. MVP: must be '/' or omitted.",
         },
       },
       required: ["machineId", "localFilePath"],
@@ -415,8 +409,8 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
     name: "plugin_dev_transfer_status",
     description:
       "Check progress of plugin_dev_upload_to_vault transfers. Returns all active and recently " +
-      "completed transfers. Poll every 10-15 seconds. On completed, the response carries the " +
-      "final persisted fileName (vaults may uniquify on collision). If concurrency is saturated, " +
+      "completed transfers. Poll every 10-15 seconds. If a vault name is already claimed, the " +
+      "terminal status is failed with error code VAULT_NAMESPACE_CONFLICT. If concurrency is saturated, " +
       "cancel stalled transfers via plugin_dev_transfer_cancel before launching new batches.",
     inputSchema: {
       type: "object" as const,
@@ -452,8 +446,8 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
     name: "architect_transfer_status",
     description:
       "Check progress of architect_machine_vault_upload transfers. Returns all active and " +
-      "recently completed transfers. Poll every 10-15 seconds. On completed, the response " +
-      "carries the final persisted fileName (vaults may uniquify on collision). If concurrency " +
+      "recently completed transfers. Poll every 10-15 seconds. If the root name is already " +
+      "claimed, the terminal status is failed with error code VAULT_NAMESPACE_CONFLICT. If concurrency " +
       "is saturated, cancel stalled transfers via architect_transfer_cancel before launching new batches.",
     inputSchema: {
       type: "object" as const,
@@ -846,21 +840,6 @@ async function handleArchitectMachineVaultUpload(
   }
   const { machineId } = parsed.data;
   const localFilePath = validateLocalPath(parsed.data.localFilePath, "read");
-  const vaultSubPath = parsed.data.vaultSubPath ?? "/";
-
-  if (vaultSubPath !== "/") {
-    return {
-      content: [
-        {
-          type: "text",
-          text:
-            `MVP only supports vault root. Received vaultSubPath="${vaultSubPath}". ` +
-            "For pre-seeded sub-folders, use architect_files_create.",
-        },
-      ],
-      isError: true,
-    };
-  }
 
   if (!fs.existsSync(localFilePath)) {
     return {
@@ -939,8 +918,9 @@ async function handleArchitectMachineVaultUpload(
               totalBytes: handle.totalBytes,
               message:
                 "Upload started. Use architect_transfer_status to poll progress; " +
-                "cancel via architect_transfer_cancel. On completion, the status response " +
-                "carries the final (possibly uniquified) fileName.",
+                "cancel via architect_transfer_cancel. If the vault root name is already " +
+                "claimed, the transfer fails with VAULT_NAMESPACE_CONFLICT without " +
+                "overwriting or renaming either file.",
             },
             null,
             2

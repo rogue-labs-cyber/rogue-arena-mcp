@@ -1,6 +1,6 @@
 # Domains Phase — Reference Doc
 
-> **For:** architect-implementor Phase B (domains step)
+> **For:** flow-implement Phase B (domains step)
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
 ## Overview

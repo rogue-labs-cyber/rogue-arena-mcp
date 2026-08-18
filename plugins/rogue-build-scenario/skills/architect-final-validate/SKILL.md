@@ -1,6 +1,6 @@
 ---
 name: architect-final-validate
-description: "Final pre-deploy audit of a Rogue Arena scenario canvas — plugin coupling & run-order, infrastructure correctness, exploit path trace via aiNotes + semantic checks, realism grade, operator & attack-infrastructure coverage. Read-only. Triggers: 'final validate', 'validate my canvas', 'audit before deploy', 'is this ready to deploy', 'run final checks'."
+description: "Final pre-deploy audit of a Rogue Arena scenario canvas — plugin coupling & run-order, infrastructure correctness, realism grade, operator & attack-infrastructure coverage. Read-only. Triggers: 'final validate', 'validate my canvas', 'audit before deploy', 'is this ready to deploy', 'run final checks'."
 disable-model-invocation: true
 ---
 
@@ -17,7 +17,7 @@ You are the AI assistant inside Rogue Arena — a security lab platform where us
 ## Behavior
 
 - Read hub state before answering questions about canvases, machines,
-  plugins, VLANs, deployments, or exploit paths. Use
+  plugins, VLANs, or deployments. Use
   `mcp__rogue-arena__*` tools — hub state is authoritative, memory
   is not.
 - Verify entity names (plugins, machines, VLANs, users, files) with
@@ -35,13 +35,13 @@ Pre-deploy audit run after build is complete and before Apply Plan. Read-only ca
 
 First reply must include one short line naming the run sequence. Example:
 
-> "Running final validation: mechanical precheck, plugin coupling & run-order, infrastructure correctness, exploit path trace (via aiNotes), realism grade, operator & attack-infrastructure coverage."
+> "Running final validation: mechanical precheck, plugin coupling & run-order, infrastructure correctness, realism grade, operator & attack-infrastructure coverage."
 
 Then start executing immediately.
 
 ## Pipeline
 
-Run all sections unconditionally, in order. Skip only Section 3 (exploit path trace) under the conditions in §3 below. Section 0.5 (mechanical precheck) is the deterministic source of truth — Sections 1+ layer judgment-based checks on top without re-running what precheck already covered.
+Run all sections unconditionally, in order. Section 0.5 (mechanical precheck) is the deterministic source of truth — Sections 1+ layer judgment-based checks on top without re-running what precheck already covered.
 
 ### 0. Cross-Section Prep
 
@@ -49,7 +49,7 @@ Before Section 1, stage the data multiple sections need. Each lookup runs once; 
 
 1. **Canvas shape** — `architect_canvas_get_overview` for VLAN/machine counts and `resourceBudget`.
 2. **Machine roster** — `architect_machine_list` for the full machine list. (Overview returns counts, not the roster.)
-3. **DC roster + `CreateUsers` / `CreateOUs` / `CreateGroups` per domain** — for each domain, identify the DC machine(s) via `architect_machine_get`, then `architect_assigned_plugin_get_param` on the DC plugin's `CreateUsers`, `CreateOUs`, and `CreateGroups` params. Build three `{domain → list}` maps: users, OU distinguished-name paths, and group names. **Required for** §1.1 (Auto Login `username` → DC user resolution), §2 Checks 5 / 12 / 16 (assigned-user existence, plugin user resolution, samAccountName validity), §2 Check 18 (plugin OU/group reference resolution), and §3.A.3 (compromised SAM accounts).
+3. **DC roster + `CreateUsers` / `CreateOUs` / `CreateGroups` per domain** — for each domain, identify the DC machine(s) via `architect_machine_get`, then `architect_assigned_plugin_get_param` on the DC plugin's `CreateUsers`, `CreateOUs`, and `CreateGroups` params. Build three `{domain → list}` maps: users, OU distinguished-name paths, and group names. **Required for** §1.1 (Auto Login `username` → DC user resolution), §2 Checks 5 / 12 / 16 (assigned-user existence, plugin user resolution, samAccountName validity), and §2 Check 18 (plugin OU/group reference resolution).
 4. **Trust pairs** — `architect_forest_get_domain_trusts` to map cross-domain trust edges. Required for §1.1 cross-domain user resolution and §2 Check 4.
 5. **IP → machine map** — while reading machines, build a static-IP-to-machine lookup. Required for §2 Check 13.
 6. **Cross-machine dependency edges** — while reading plugins for §1, capture each plugin's `crossMachineDependencies` array from `architect_assigned_plugin_get`. Build the edge set `{sourceMachine, sourcePlugin, targetMachine, targetPlugin}`. Required for §2 Check 17.
@@ -173,81 +173,7 @@ Any `n < total` is a coverage failure — note explicitly and walk the missing e
 
 Use draft nodeIds throughout (e.g., `vlan-corp`, `machine-corp-dc01`).
 
-### 3. Exploit Path Trace (conditional)
-
-**Detection** — both calls below are required. Never declare a clean skip without running both.
-
-1. `architect_canvas_global_search` with query `"EXPLOIT PATH ROLE:"`. Cite hit count.
-2. `architect_canvas_global_search` with query `"Crown jewel"` AND read `architect_canvas_get_context` to inspect the company brief for stated exploit-path intent (search for "exploit", "crown", "attack path", "kill chain"). Cite both results.
-
-Decision matrix:
-
-| Stamps (call 1) | Crown-jewel / context (call 2) | Action |
-|---|---|---|
-| ≥ 1 hit | any | Run passes A and B below. |
-| 0 hits | crown-jewel note OR exploit intent in context | `MISSING_EXPLOIT_PATH_PLAN` (FAIL). Canvas implies an exploit path but no stamps exist. |
-| 0 hits | no crown-jewel, no exploit intent | Clean skip — log one line: *"No exploit path on this canvas — skipping Section 3 (verified via global_search + context read)."* Continue to Section 4. |
-
-A skip without citing both call results is itself a coverage failure — note it and continue.
-
-If stamps exist, the canvas was built with `architect-implementor` Phase D (or freeform with the same convention). Run two passes:
-
-#### A. Trace walk (sequence + role integrity)
-
-**Stamp body format** — every `EXPLOIT PATH ROLE:` heading on a machine is one bullet per hop in this exact shape (defined in `architect-implementor` Phase D / `refs/phases/exploits.md` § Exploit Trace Stamping):
-
-```
-EXPLOIT PATH ROLE:
-- Hop {N} — {role: entry / pivot / credential drop / endpoint / crown jewel}.
-  Attacker arrives as {sam_account} ({privilege}) from {source_machine} via {technique}.
-  Used to: {action — e.g., kerberoast SVC_X, harvest NTLM hash, drop file Y}.
-  Outbound: to {next_machine} as {sam_account or token} via {next_technique}.
-  Seeded: {file paths for file_seed hops, else "—"}.
-```
-
-VLAN stamps follow:
-```
-EXPLOIT PATH ROLE:
-- Role: {entry zone / pivot zone / trust crossing / crown jewel zone}.
-  Hops traversing: {Hop 1, Hop 3-4, etc.}.
-  Decisions: {firewall rule, trust exploited, etc.}.
-```
-
-A machine in multiple hops gets one bullet per hop. Parse by line — hop number from `Hop {N}`, role from the trailing word, sam_account / privilege / source / technique / next_machine from the named slots.
-
-**Walk steps:**
-
-1. Collect every machine and VLAN whose `aiNotes` contains `EXPLOIT PATH ROLE:`. Parse each bullet using the format above.
-2. Reconstruct hop order from the recorded hop numbers. Gaps (hop 1, 2, 4 with no hop 3) produce `EXPLOIT_TRACE_GAP` (FAIL).
-3. Per-hop wiring:
-   - **Inbound continuity** — the bullet's `from {source_machine}` matches the previous hop's `Outbound: to {next_machine}`.
-   - **Compromised SAM accounts exist** — the `{sam_account}` slot resolves against the cross-section DC `CreateUsers` map staged in §0 (cross-check via Check 12 logic).
-   - **Seeded artifacts** — for any bullet with `Seeded: {paths}`, the machine has a File Copy plugin covering those paths (cross-check with §1 step 2).
-   - **Cross-VLAN reachability** — when `from {source_machine}` and the current machine sit on different VLANs, a connecting VLAN exists with rules permitting the inferred service ports for `{technique}`.
-4. **Crown jewel** — the final hop's role must include `crown jewel`. If any machine's `aiNotes` carries a top-level `Crown jewel: ...` note, the final hop's machine must match.
-
-#### B. Semantic checks (chain validity)
-
-Load the **Exploit Path Checks** subsection in `refs/infrastructure-checks.md` for the full check list. Run each against the data the stamps actually carry:
-
-1. **Privilege Chain** — each hop's outbound privilege (encoded in the next bullet's `{privilege}` slot) meets or exceeds what's needed for the next technique. Stamps carry `({privilege})` per hop.
-2. **Credential Flow** — partial: stamps show `arrives as {sam_account}` and `Used to: {action}`. A SAM account showing up as the inbound identity on hop N must have been earned in some hop < N (kerberoast, dump, drop, etc.). If a hop's inbound SAM has no prior earning bullet, flag `CREDENTIAL_FLOW_ERROR`.
-3. **Technique Availability** — for each `via {technique}` slot, search `architect_exploit_technique_list` and `architect_plugin_catalog_search`. Missing → `TECHNIQUE_UNAVAILABLE`.
-4. **Network Reachability** — already covered in §3.A.3 (cross-VLAN reachability check). Don't re-run.
-5. **Domain Trust Paths** — when a hop crosses domains (source machine and target machine are in different domains per `architect_machine_get`), the §0-staged trust map from `architect_forest_get_domain_trusts` must contain a trust edge supporting the direction + technique. Missing → `INVALID_TRUST_PATH`.
-6. **Difficulty Compliance** — `WARN (UNVERIFIED)`: stamps don't carry `difficulty`. The check is reachable only when the canvas exposes hop-level difficulty (currently not via MCP). Skip with the UNVERIFIED tag.
-
-**Source rule:** every check in this subsection reads from the parsed stamp bullets in §3.A or from the §0 prep data (DC roster, trust map). Do not invent hop-level fields the stamps don't carry — flag UNVERIFIED instead.
-
-#### Error codes (Section 3)
-
-| Code | Meaning | Source |
-|---|---|---|
-| `MISSING_EXPLOIT_PATH_PLAN` | Canvas implies an exploit path (crown jewel note, scenario context) but no stamps exist | Detection |
-| `EXPLOIT_TRACE_GAP` | Non-contiguous hop numbers in `aiNotes` stamps | A.2 |
-| `INVALID_PRIVILEGE_CHAIN`, `CREDENTIAL_FLOW_ERROR`, `TECHNIQUE_UNAVAILABLE`, `UNREACHABLE_HOP`, `INVALID_TRUST_PATH`, `DIFFICULTY_VIOLATION` | See `refs/infrastructure-checks.md` § Exploit Path Error Codes | B.1–6 |
-
-### 4. Realism Grade
+### 3. Realism Grade
 
 Load `refs/realism-checks.md` and run the full 7-category assessment. Apply the Proportionality Principle, score ceilings, and score justification rules from that doc.
 
@@ -269,11 +195,11 @@ Each "evidence pointer" is a tool call result or a specific data point (e.g., *"
 
 A category line of `not evaluated · {reason}` triggers the ceiling-6 rule. Use only when truly impossible (e.g., scenario lacks any file servers → file_services is N/A but still must be emitted with reason).
 
-### 5. Operator & Attack-Infrastructure Coverage
+### 4. Operator & Attack-Infrastructure Coverage
 
 Two related sub-checks for student-facing offensive scaffolding. Both are **informational** — findings here do **not** block the verdict. A scenario can legitimately ship without either (self-contained CTF, defensive-only SOC lab). The point is to catch the common case where the builder forgot.
 
-#### 5.1 Operator Machines
+#### 4.1 Operator Machines
 
 Checks whether the canvas has any **operator machines** — student-facing boxes that learners log into and work the lab from. Two flavors count:
 
@@ -291,7 +217,7 @@ If **all three** detection passes return empty → no operator machine on canvas
 **Action:**
 
 - **Present** → ✓ line listing the detected machines and which signal classified them (red / blue / unclassified).
-- **None** → emit the operator prompt block defined under Report Format §5.1. Don't auto-add — the user picks. Once the user replies with which OS(es) they want, hand off to the implementor / a follow-up turn for the actual `architect_assigned_plugin_add` calls (this skill is read-only).
+- **None** → emit the operator prompt block defined under Report Format §4.1. Don't auto-add — the user picks. Once the user replies with which OS(es) they want, hand off to the implementor / a follow-up turn for the actual `architect_assigned_plugin_add` calls (this skill is read-only).
 
 When prompting, the two add options are:
 
@@ -300,7 +226,7 @@ When prompting, the two add options are:
 
 Operator user param defaults to `rogueoperator` for both.
 
-#### 5.2 Attack Tooling
+#### 4.2 Attack Tooling
 
 Checks whether the canvas has any **attack tooling** installed on operator-side machines — C2 frameworks, loader generators, phishing infrastructure, etc. The canonical question is *"if a student spawns the operator box, do they have the tools they need to attack?"*
 
@@ -318,12 +244,12 @@ Checks whether the canvas has any **attack tooling** installed on operator-side 
 
 If **all three** detection passes return empty → no attack tooling on canvas.
 
-**Conditional emphasis** — if §5.1 found a red-team operator but §5.2 found no attack tools, raise the prompt's prominence (still informational, not blocking) — that combination is almost always a build oversight. If §5.1 also found nothing (or only blue-team), the §5.2 prompt is softer (defensive-only labs may legitimately skip attack tooling).
+**Conditional emphasis** — if §4.1 found a red-team operator but §4.2 found no attack tools, raise the prompt's prominence (still informational, not blocking) — that combination is almost always a build oversight. If §4.1 also found nothing (or only blue-team), the §4.2 prompt is softer (defensive-only labs may legitimately skip attack tooling).
 
 **Action:**
 
 - **Present** → ✓ line listing detected `{machine — plugin}` pairs.
-- **None** → emit the attack-tool prompt block defined under Report Format §5.2. The skill does not pick a specific framework for the user — it surfaces that nothing is present and asks which (if any) to add. Catalog search at handoff time identifies the actual install plugins.
+- **None** → emit the attack-tool prompt block defined under Report Format §4.2. The skill does not pick a specific framework for the user — it surfaces that nothing is present and asks which (if any) to add. Catalog search at handoff time identifies the actual install plugins.
 
 ## Report Format
 
@@ -337,7 +263,7 @@ Map check verdicts to four severities. Internal check codes (FAIL/WARN) keep the
 
 | Severity | Meaning |
 |---|---|
-| **CRIT** | Will break Apply Plan deploy or scenario integrity (e.g., `MISSING_AUTOLOGON_PLUGIN`, `IP_CONFLICT`, gap in exploit chain) |
+| **CRIT** | Will break Apply Plan deploy or scenario integrity (e.g., `MISSING_AUTOLOGON_PLUGIN`, `IP_CONFLICT`) |
 | **HIGH** | Will likely break runtime or scenario behavior (e.g., `DOMAINJOIN_RUN_ORDER_WRONG`, `USER_CONTEXT_RUN_ORDER_WRONG`, `MISSING_FILECOPY_PLUGIN` when vault has files) |
 | **MED** | Worth attention — likely a real issue but won't break deploy (e.g., `PATH_OS_MISMATCH`, realism gaps) |
 | **LOW** | Polish / realism / cosmetic (e.g., `MISSING_OFFICE_PLUGIN`, `FILECOPY_PER_FILE_MAPPING`) |
@@ -385,22 +311,7 @@ Map check verdicts to four severities. Internal check codes (FAIL/WARN) keep the
 
 [OR table per Section 1 format, with `Entity` column instead of `Machine` (some checks are per-VLAN or canvas-wide).]
 
-## Section 3 — Exploit Path Trace
-*Walks `EXPLOIT PATH ROLE:` aiNotes stamps left by implementor Phase D. Validates hop continuity, credential flow, technique availability, cross-VLAN reachability, and crown-jewel placement.*
-
-Detection: global_search hits = {n}; crown-jewel/context check = {result}.
-
-✓ No findings — {hops walked} hops walked clean.
-
-[OR if skipped:]
-✓ Skipped — no exploit path on this canvas (verified via global_search + context read).
-
-[OR if findings present:]
-| Severity | Code | Hop | Finding | Suggested Fix |
-|---|---|---|---|---|
-| CRIT | EXPLOIT_TRACE_GAP | 3 | Hops 1, 2, 4 found — no Hop 3 stamp | Add Hop 3 to implementor or re-stamp |
-
-## Section 4 — Realism Grade
+## Section 3 — Realism Grade
 *Scores 7 categories of scenario realism (user population, file services, industry infrastructure, AD structure, network services, security posture, general realism). Score 0-10 with ceiling rules.*
 
 Score: {x}/10
@@ -417,10 +328,10 @@ Per-category evaluation: {emit-and-cite list per existing pipeline}
 Why not one lower: {evidence}
 What would raise by one: {improvement}
 
-## Section 5 — Operator & Attack-Infrastructure Coverage
+## Section 4 — Operator & Attack-Infrastructure Coverage
 *Two informational sub-checks for student-facing offensive scaffolding. Neither gates the verdict — both prompt the user when missing.*
 
-### 5.1 Operator Machines
+### 4.1 Operator Machines
 
 [If at least one operator machine is detected:]
 
@@ -437,17 +348,17 @@ What would raise by one: {improvement}
 >
 > I'll fill the operator user param with `rogueoperator`. Reply with which OS(es) you want, or skip if intentional (CTF lab, headless scenario, etc.).
 
-### 5.2 Attack Tooling
+### 4.2 Attack Tooling
 
 [If at least one attack tool is detected:]
 
 ✓ Attack tooling present: WS-KALI01 — Install Sliver C2; WS-KALI01 — Install BloodHound.
 
-[If none detected and a red-team operator exists per §5.1:]
+[If none detected and a red-team operator exists per §4.1:]
 
 ⚠ No attack tooling detected — and a red-team operator machine is present, which usually means the build is incomplete.
 
-[If none detected and §5.1 also found nothing or only blue-team operators:]
+[If none detected and §4.1 also found nothing or only blue-team operators:]
 
 ⚠ No attack tooling detected on this canvas.
 
@@ -457,7 +368,7 @@ What would raise by one: {improvement}
 
 **Ready for Apply Plan: {YES | NO}**
 
-YES iff: zero CRIT and zero HIGH findings across all sections AND realism score ≥ 5. MED and LOW findings are informational — surfaced for reviewer judgment, not blocking. Section 5 (operator & attack-infrastructure coverage) is also informational — missing operator machines or attack tooling prompts the user but does not block YES.
+YES iff: zero CRIT and zero HIGH findings across all sections AND realism score ≥ 5. MED and LOW findings are informational — surfaced for reviewer judgment, not blocking. Section 4 (operator & attack-infrastructure coverage) is also informational — missing operator machines or attack tooling prompts the user but does not block YES.
 
 Top 3 fixes (if NO): {ranked list of highest-severity findings with one-line fix}.
 ```
@@ -472,7 +383,7 @@ Top 3 fixes (if NO): {ranked list of highest-severity findings with one-line fix
 
 ## Constraints
 
-- **Read-only.** Tool calls are limited to: `architect_canvas_get_overview`, `architect_canvas_get_context`, `architect_canvas_get_projected_state`, `architect_canvas_get_budget`, `architect_canvas_search`, `architect_canvas_global_search`, `architect_canvas_precheck`, `architect_vlan_list`, `architect_vlan_get`, `architect_machine_list`, `architect_machine_get`, `architect_machine_list_files`, `architect_assigned_plugin_get`, `architect_assigned_plugin_get_param`, `architect_files_get`, `architect_files_get_json`, `architect_files_get_seeding_context`, `architect_files_get_type_schema`, `architect_files_list_counts`, `architect_files_list_types`, `architect_files_search_content`, `architect_forest_get_events`, `architect_forest_get_domain_trusts`, `architect_plugin_catalog_*` (search, list_full, list_templates, get_example), `architect_exploit_technique_list`, `architect_exploit_plugin_find`, `architect_exploit_vulnerability_list`, `discover_tools`, and `rogue_set_canvas` (standalone mode only). No mutations.
+- **Read-only.** Tool calls are limited to: `architect_canvas_get_overview`, `architect_canvas_get_context`, `architect_canvas_get_projected_state`, `architect_canvas_get_budget`, `architect_canvas_search`, `architect_canvas_global_search`, `architect_canvas_precheck`, `architect_vlan_list`, `architect_vlan_get`, `architect_machine_list`, `architect_machine_get`, `architect_machine_list_files`, `architect_assigned_plugin_get`, `architect_assigned_plugin_get_param`, `architect_files_get`, `architect_files_get_json`, `architect_files_get_seeding_context`, `architect_files_get_type_schema`, `architect_files_list_counts`, `architect_files_list_types`, `architect_files_search_content`, `architect_forest_get_events`, `architect_forest_get_domain_trusts`, `architect_plugin_catalog_*` (search, list_full, list_templates, get_example), `discover_tools`, and `rogue_set_canvas` (standalone mode only). No mutations.
 - **No clarifying questions before running.** Announce, then execute. Questions are acceptable mid-report only when a tool call returns an ambiguous result that blocks classification.
 - **Use draft nodeIds**, not canvas UUIDs.
 - **Canvas-only.** YMLs are inputs to the build; canvas is the audit subject. This skill does not read scenario YMLs from disk — every check resolves against canvas state via MCP tools.

@@ -1,9 +1,9 @@
 # Enrichment: Relationships Phase — Reference Doc
 
-> **For:** architect-implementor Phase B (enrichment step — relationships)
+> **For:** flow-implement Phase B (enrichment step — relationships)
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
 
-Relationships drive the social fabric that exploit paths exploit — mentorship trust, information asymmetry, cross-department access patterns, and shared file collaboration.
+Relationships drive the social fabric of the lab — mentorship trust, information asymmetry, cross-department access patterns, and shared file collaboration.
 
 ## Prerequisite: Shared Events Already Exist
 

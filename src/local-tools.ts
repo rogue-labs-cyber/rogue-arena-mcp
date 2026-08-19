@@ -153,7 +153,7 @@ function validateLocalPath(rawPath: string, operation: "read" | "write"): string
 
 const PluginDevUploadSchema = z
   .object({
-    pluginVersionId: z.string().uuid(),
+    pluginId: z.string().uuid(),
     localFilePath: z.string().min(1),
   })
   .strict();
@@ -261,17 +261,17 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
   {
     name: "plugin_dev_upload_to_vault",
     description:
-      "Upload a local file to a plugin version's vault using TUS resumable upload. " +
+      "Upload a local file to a plugin's vault using TUS resumable upload. " +
       "Supports large files (multi-GB). Starts the transfer in the background and returns " +
       "immediately with a transferId. Use plugin_dev_transfer_status to poll progress every " +
       "10-15 seconds; cancel via plugin_dev_transfer_cancel.",
     inputSchema: {
       type: "object" as const,
       properties: {
-        pluginVersionId: {
+        pluginId: {
           type: "string",
           format: "uuid",
-          description: "UUID of the plugin version",
+          description: "UUID of the plugin",
         },
         localFilePath: {
           type: "string",
@@ -279,7 +279,7 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
           description: "Absolute path to the file on the local machine",
         },
       },
-      required: ["pluginVersionId", "localFilePath"],
+      required: ["pluginId", "localFilePath"],
       additionalProperties: false,
     },
   },
@@ -734,7 +734,7 @@ async function handleTusUpload(
   if (!parsed.success) {
     return { content: [{ type: "text", text: parsed.error }], isError: true };
   }
-  const { pluginVersionId } = parsed.data;
+  const { pluginId } = parsed.data;
   const localFilePath = validateLocalPath(parsed.data.localFilePath, "read");
 
   if (!fs.existsSync(localFilePath)) {
@@ -765,7 +765,7 @@ async function handleTusUpload(
       isError: true,
     };
   }
-  const duplicate = findDuplicateTransfer(localFilePath, "pluginVault", pluginVersionId);
+  const duplicate = findDuplicateTransfer(localFilePath, "pluginVault", pluginId);
   if (duplicate) {
     return {
       content: [
@@ -793,14 +793,14 @@ async function handleTusUpload(
         originalFileName,
         vaultID: "",
         vaultType: "scenarioBuilderPlugin",
-        uniqueFilterID: pluginVersionId,
+        uniqueFilterID: pluginId,
         depVMID: "",
         destinationType: "vault",
         fullPathToDestinationFolder: "/",
         fileFilesizeBytes,
       },
       targetKind: "pluginVault",
-      targetId: pluginVersionId,
+      targetId: pluginId,
     });
 
     return {

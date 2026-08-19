@@ -97,41 +97,41 @@ You MUST create a task for each of these items and complete them in order:
 4. **Present project menu** (or redirect to brainstorm if no projects exist)
 5. **Read selected plugin's files** — YAML, download script, vault contents, and `.sample/` body files for any Addon Config Samples on the plugin
 6. **Read `BUGS.md`** at the project root — open-bug board the develop loop maintains (create empty if missing)
-7. **Check for platform IDs** — if `pluginVersionId` exists, discover MCP tools and pull latest state from platform
+7. **Check for platform IDs** — if `pluginId` exists, discover MCP tools and pull latest state from platform
 8. **Offer test scenario build** — if `testScenario.buildStatus === "pending"` and `canvasVersionId` is set, offer to stage the test scenario on the canvas (defer to brainstorm's Build Test Scenario on Canvas section)
 9. **Enter work loop**
 
 ## MCP Tool Integration
 
-When a plugin has `pluginVersionId` in its `project.json`, the develop skill can sync with the Rogue Arena platform directly.
+When a plugin has `pluginId` in its `project.json`, the develop skill can sync with the Rogue Arena platform directly.
 
 ### Startup — MCP Discovery
 
 After loading the selected plugin's context (step 4 in checklist), check for platform IDs:
 
-- If `pluginVersionId` exists → call `discover_tools(category: "PLUGIN_DEV")` to load plugin dev MCP tools
+- If `pluginId` exists → call `discover_tools(category: "PLUGIN_DEV")` to load plugin dev MCP tools
 - If `canvasVersionId` exists (project-level or plugin-level) → call `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "deploy")` to load deployment debug tools
-- If `pluginVersionId` exists → call `plugin_dev_get_version` to pull latest YAML from platform (platform is source of truth)
+- If `pluginId` exists → call `plugin_dev_get` to pull latest YAML from platform (platform is source of truth)
 
 ### Hard Gates
 
-- **Before any plugin dev MCP tool call:** Plugin must have `pluginVersionId` in project.json. If missing, ask: "I need the plugin version ID to sync with the platform. Go to Rogue Arena, create the plugin, and give me the version ID."
+- **Before any plugin dev MCP tool call:** Plugin must have `pluginId` in project.json. If missing, ask: "I need the plugin ID to sync with the platform. Go to Rogue Arena, create the plugin, and give me the version ID."
 - **Before any deploy tool call:** Project must have `canvasVersionId`. If missing, ask: "I need the canvas version ID to debug the deployment. Give me the canvas ID from the Rogue Arena URL."
 - **Before assigning any project plugin to a machine on the canvas** (`architect_assigned_plugin_add`), all of the following must be true:
-  - The plugin shell MUST exist on the platform with a `pluginVersionId`.
+  - The plugin shell MUST exist on the platform with a `pluginId`.
   - **Every declared param in `project.json` MUST be pushed to the platform via `plugin_dev_add_param`.**
   - The plugin's YAML body MUST have been pushed to the platform via `plugin_dev_update_yaml` and be non-empty — it may still be the unimplemented scaffold placeholder, but an **empty platform body errors the first Apply Plan**, because the deploy runs the platform's stored `yamlCode`, not your local file. What's required on the platform: the plugin record + a non-empty (placeholder-or-real) YAML body + the param schema; without those the build errors or can't be parameterized.
   - This applies to: retro-building a test scenario, adding a new plugin to an existing canvas, or any other staging path.
 ### Platform Sync in Work Loop
 
-When `pluginVersionId` is present, MCP tools extend the local work loop:
+When `pluginId` is present, MCP tools extend the local work loop:
 
-| Action | Local (always) | MCP (when pluginVersionId present) |
+| Action | Local (always) | MCP (when pluginId present) |
 |--------|----------------|-------------------------------------|
 | Write/edit YAML | Save to `ansible_run.yml` | Also push via `plugin_dev_update_yaml` |
 | Add/change params | Update `project.json` params | Also call `plugin_dev_add_param` / `plugin_dev_update_param` / `plugin_dev_delete_param` |
 | Update name/desc/type | Update `project.json` | Also call `plugin_dev_update_metadata` |
-| Upload resources | Save to `for_plugin_vault/` | Upload via `plugin_dev_upload_to_vault(pluginVersionId, localFilePath)` — async TUS resumable transfer. Returns `transferId`; poll `plugin_dev_transfer_status` to terminal status. A claimed vault name fails with `VAULT_NAMESPACE_CONFLICT`; it never overwrites or silently renames. For an intentional replacement, list the vault, delete the exact existing file, then retry the upload. |
+| Upload resources | Save to `for_plugin_vault/` | Upload via `plugin_dev_upload_to_vault(pluginId, localFilePath)` — async TUS resumable transfer. Returns `transferId`; poll `plugin_dev_transfer_status` to terminal status. A claimed vault name fails with `VAULT_NAMESPACE_CONFLICT`; it never overwrites or silently renames. For an intentional replacement, list the vault, delete the exact existing file, then retry the upload. |
 | Check vault contents | `ls for_plugin_vault/` | Also call `plugin_dev_list_vault_files` |
 | Delete vault files | `rm` locally | Also call `plugin_dev_delete_vault_file` |
 | Add/edit/reorder addon config samples | Update `project.json` `addonConfigSamples[]` + write/edit body in `.sample/<name>.<ext>` | Also call `plugin_dev_add_addon_config_sample` / `plugin_dev_update_addon_config_sample` |
@@ -142,8 +142,8 @@ When `pluginVersionId` is present, MCP tools extend the local work loop:
 
 The param tools take a narrower, differently-named arg set than the `project.json` param object — map explicitly; passing `project.json` fields straight through fails (the tools reject unknown fields):
 
-- **`plugin_dev_add_param`** — `pluginVersionId`, param `name` → `parameterFieldName` (valid Ansible variable name, no spaces), `type`, `description`, `required` → `isRequired`, optional `isAdvancedSetting`, and `csvHeaders` (only for `csv` type — the header row alone, i.e. the first line of the param's `sampleCSV`, as a **comma-separated string**). There is no default field — a param's default belongs in the YAML (`plugin_dev_update_yaml`), not here. Additive: each call creates a new param, so use `update_param` (not a second `add_param`) to change an existing one.
-- **`plugin_dev_update_param`** — keyed on **`parameterId`** (the param's UUID from `plugin_dev_get_version`'s `parameters[]`), not the field name. Same editable fields, with one shape difference: its `csvHeaders` is an **array of strings** (or `null` to clear), not a comma-separated string.
+- **`plugin_dev_add_param`** — `pluginId`, param `name` → `parameterFieldName` (valid Ansible variable name, no spaces), `type`, `description`, `required` → `isRequired`, optional `isAdvancedSetting`, and `csvHeaders` (only for `csv` type — the header row alone, i.e. the first line of the param's `sampleCSV`, as a **comma-separated string**). There is no default field — a param's default belongs in the YAML (`plugin_dev_update_yaml`), not here. Additive: each call creates a new param, so use `update_param` (not a second `add_param`) to change an existing one.
+- **`plugin_dev_update_param`** — keyed on **`parameterId`** (the param's UUID from `plugin_dev_get`'s `parameters[]`), not the field name. Same editable fields, with one shape difference: its `csvHeaders` is an **array of strings** (or `null` to clear), not a comma-separated string.
 - **`plugin_dev_delete_param`** — keyed on the same `parameterId`.
 
 ### Live Deployment Debugging
@@ -180,7 +180,7 @@ Each wake should be a short, focused status pass — not a deep rabbit hole. Lon
 ### Two-Plugin Debugging
 
 When debugging a multi-plugin project on a canvas:
-- Cross-reference both `pluginVersionId` values against deploy tool logs
+- Cross-reference both `pluginId` values against deploy tool logs
 - Check dependency ordering — server plugin must succeed before client
 - If server fails, client failure is likely a cascading symptom — debug server first
 
@@ -192,7 +192,7 @@ If `project.json` has a `testScenario` outline with `buildStatus === "pending"` 
 
 If the user says yes, follow the **Build Test Scenario on Canvas** section in the brainstorm skill — same procedure: load `refs/freeform-context.md`, discover architect tools, stage in Canvas → Domain → VLAN → Machine → Plugin order, set `buildStatus` to `"staged"` on success.
 
-**Before staging, enforce the Hard Gate (Hard Gates section above):** every project plugin in the outline must have its `pluginVersionId` set in `project.json`, a non-empty YAML body pushed via `plugin_dev_update_yaml` (at least the scaffold placeholder), AND every declared param pushed to the platform via `plugin_dev_add_param`. If any plugin is missing these, walk the user through Platform Integration first (collect missing `pluginVersionId`s, push metadata, push the scaffold `ansible_run.yml` body via `plugin_dev_update_yaml`, and push every param). If the user wants to defer that work, set `buildStatus` to `"deferred"` and skip staging — don't half-stage with missing YAML/params.
+**Before staging, enforce the Hard Gate (Hard Gates section above):** every project plugin in the outline must have its `pluginId` set in `project.json`, a non-empty YAML body pushed via `plugin_dev_update_yaml` (at least the scaffold placeholder), AND every declared param pushed to the platform via `plugin_dev_add_param`. If any plugin is missing these, walk the user through Platform Integration first (collect missing `pluginId`s, push metadata, push the scaffold `ansible_run.yml` body via `plugin_dev_update_yaml`, and push every param). If the user wants to defer that work, set `buildStatus` to `"deferred"` and skip staging — don't half-stage with missing YAML/params.
 
 If the user says no to staging, set `buildStatus` to `"deferred"` and continue. Don't ask again on subsequent develop sessions unless the user re-opens the topic.
 
@@ -208,7 +208,7 @@ digraph develop {
     "Present project menu" [shape=box];
     "User picks plugin" [shape=box];
     "Read files + BUGS.md" [shape=box];
-    "MCP discovery (if pluginVersionId)" [shape=box];
+    "MCP discovery (if pluginId)" [shape=box];
     "Offer retro-build test scenario" [shape=box];
     "Ask about lastUpdate" [shape=box];
     "User reports (log, error, next step)" [shape=box];
@@ -226,8 +226,8 @@ digraph develop {
     "Projects exist?" -> "Present project menu" [label="yes"];
     "Present project menu" -> "User picks plugin";
     "User picks plugin" -> "Read files + BUGS.md";
-    "Read files + BUGS.md" -> "MCP discovery (if pluginVersionId)";
-    "MCP discovery (if pluginVersionId)" -> "Offer retro-build test scenario";
+    "Read files + BUGS.md" -> "MCP discovery (if pluginId)";
+    "MCP discovery (if pluginId)" -> "Offer retro-build test scenario";
     "Offer retro-build test scenario" -> "Ask about lastUpdate";
     "Ask about lastUpdate" -> "User reports (log, error, next step)";
     "User reports (log, error, next step)" -> "Update YAML / vault / params";
@@ -300,7 +300,7 @@ If ANY of these are missing or empty, **stop and collect them before proceeding 
 
 This metadata is required for publishing — don't skip it.
 
-**Reconcile platform state (first-sync backfill).** When a plugin already has a `pluginVersionId`, its shell exists on the platform but its metadata may never have been pushed — brainstorm's Platform Integration is optional, so a skipped run leaves the shell with a throwaway name, no params, and no OS templates. Compare `plugin_dev_get_version` against `project.json` and push whatever is missing, so the platform matches the confirmed plan before any development work:
+**Reconcile platform state (first-sync backfill).** When a plugin already has a `pluginId`, its shell exists on the platform but its metadata may never have been pushed — brainstorm's Platform Integration is optional, so a skipped run leaves the shell with a throwaway name, no params, and no OS templates. Compare `plugin_dev_get` against `project.json` and push whatever is missing, so the platform matches the confirmed plan before any development work:
 - **Name / description / type** — if the platform values don't match `project.json`, call `plugin_dev_update_metadata` with the confirmed values (including `name`).
 - **YAML body** — if `get_version` returns an empty/whitespace `yamlCode` (brainstorm never pushed it), push the local `ansible_run.yml` via `plugin_dev_update_yaml` so the plugin isn't empty on deploy — it carries at least the deploy-safe scaffold placeholder. This is the one case where local wins over the platform-is-source-of-truth default: an empty platform body is a gap to fill, not truth.
 - **Compatible OS templates** — if none are set (or only the catch-all default), set an initial slice from the plugin's `targetOS` via `plugin_dev_get_compatible_templates` → `plugin_dev_set_compatible_templates` (linux → the apt images `DebianLinux`/`Ubuntu`/`UbuntuGUI`/`Kali`; windows → `WindowsServer2022`/`Windows10`/`Windows11`). You narrow this further post-build in the Compatible Templates step.
@@ -380,7 +380,7 @@ The download script runs on an **online machine** to fetch resources into `for_p
 
 ## Addon Config Samples
 
-Some plugins ship a curated library of runtime config files alongside the plugin itself — JSON timelines for Ghosts, XML rules for Sysmon, YAML profiles for Caldera, etc. These are **Addon Config Samples**: named, annotated text blobs stored on the plugin version, discoverable through the platform catalog, and consumed by downstream Claude sessions that pick a sample, tweak it in memory, and seed it onto a target machine via the plugin's existing file-seeding parameter (typically a `stringBlock` param).
+Some plugins ship a curated library of runtime config files alongside the plugin itself — JSON timelines for Ghosts, XML rules for Sysmon, YAML profiles for Caldera, etc. These are **Addon Config Samples**: named, annotated text blobs stored on the plugin, discoverable through the platform catalog, and consumed by downstream Claude sessions that pick a sample, tweak it in memory, and seed it onto a target machine via the plugin's existing file-seeding parameter (typically a `stringBlock` param).
 
 **Local representation.** Sample bodies are large enough to deserve their own files — don't stuff them into `project.json`. Use this layout:
 
@@ -399,7 +399,7 @@ projects/<project>/<plugin>/
 **Authoring a new sample (mid-develop):**
 1. Add an entry to `addonConfigSamples[]` in `project.json` with the next free `sortOrder`.
 2. Write the body to `.sample/<name>.<ext>` using the extension matching `language` (`.json`, `.py`, `.yml`, `.ps1`, `.sh`, `.cs`, `.txt`).
-3. If `pluginVersionId` is set, call `plugin_dev_add_addon_config_sample` with `pluginVersionId`, `name`, `notes`, `language`, `code` (the body), `sortOrder`. Save the returned `sampleId` back into the matching `project.json` entry.
+3. If `pluginId` is set, call `plugin_dev_add_addon_config_sample` with `pluginId`, `name`, `notes`, `language`, `code` (the body), `sortOrder`. Save the returned `sampleId` back into the matching `project.json` entry.
 
 **Editing an existing sample:**
 1. Update `.sample/<name>.<ext>` and/or the `notes` / `language` / `sortOrder` in `project.json`.
@@ -407,7 +407,7 @@ projects/<project>/<plugin>/
 
 **Deleting samples:**
 1. Remove entries from `project.json` and delete the matching `.sample/` files.
-2. Call `plugin_dev_delete_addon_config_sample` with `sampleIds: [...]`. The platform auto-recompacts `sortOrder` for remaining samples — re-read state via `plugin_dev_get_version` and align `project.json`.
+2. Call `plugin_dev_delete_addon_config_sample` with `sampleIds: [...]`. The platform auto-recompacts `sortOrder` for remaining samples — re-read state via `plugin_dev_get` and align `project.json`.
 
 **Reordering:** edit `sortOrder` on the affected entries in `project.json` and push individual `plugin_dev_update_addon_config_sample` calls with the new `sortOrder` values. The platform owns ordering; local order is informational.
 
@@ -645,7 +645,7 @@ After the YAML, params, and vault are stable — but before declaring the plugin
 
 ### 1. Compatible Templates (always run)
 
-Call `plugin_dev_get_compatible_templates` with the current plugin version ID. Then narrow the selection based on what the plugin actually does:
+Call `plugin_dev_get_compatible_templates` with the current plugin ID. Then narrow the selection based on what the plugin actually does:
 
 - Linux-only (apt/yum/systemd, bash scripts, no PowerShell) → keep only Linux templates (Ubuntu, Debian, Kali, etc.).
 - Windows-only / PowerShell → keep only Windows templates (Windows10, Windows11, Windows Server 2022, etc.).
@@ -664,7 +664,7 @@ Trigger this step when the plugin's params reference something a *different* plu
 Workflow:
 
 1. Use `architect_plugin_catalog_search` to find candidates by topic/keyword (e.g., "domain controller", "wireguard").
-2. Use `plugin_dev_get_version` on each candidate to discover its params.
+2. Use `plugin_dev_get` on each candidate to discover its params.
 3. Identify the param on the parent that produces the value the child consumes.
 4. Call `plugin_dev_create_parent_plugin` with `childMatchParamName` and `parentMatchParamName` set to the matching pair. The backend will auto-link runtime instances when their values match.
 5. If no clear parent exists, skip — don't fabricate one.
@@ -711,4 +711,4 @@ Or for a param-driven mapping:
 | `plugin_dev_create_parent_plugin` | Declare this plugin is a child of another plugin (with optional match-param) |
 | `plugin_dev_delete_parent_plugin` | Remove a parent-plugin link |
 | `plugin_dev_create_automation` | Add an automation rule that stamps VLAN/Machine fields when the plugin runs |
-| `plugin_dev_delete_automation` | Remove an automation rule (re-read array first via plugin_dev_get_version) |
+| `plugin_dev_delete_automation` | Remove an automation rule (re-read array first via plugin_dev_get) |

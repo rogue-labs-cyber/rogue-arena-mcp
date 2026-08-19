@@ -45,7 +45,7 @@ DC count guidance: 1 DC per domain for small scenarios (<20 VMs), 2 for medium (
 
 ## 5. Plugin Param Discovery Workflow
 
-**LAW: Call `architect_plugin_catalog_list_full` with the plugin's `pluginVersionId` BEFORE calling `architect_assigned_plugin_set_params`.** Field names vary between plugin versions — guessing produces silent misconfigurations that only surface at deployment. The same call also returns `addonConfigSamples[{ sampleId, name, notes, language }]` — the plugin's curated library of ready-to-deploy runtime config blobs.
+**LAW: Call `architect_plugin_catalog_list_full` with the plugin's `pluginId` BEFORE calling `architect_assigned_plugin_set_params`.** Field names vary between plugins — guessing produces silent misconfigurations that only surface at deployment. The same call also returns `addonConfigSamples[{ sampleId, name, notes, language }]` — the plugin's curated library of ready-to-deploy runtime config blobs.
 
 Workflow: (1) Install plugin via `architect_assigned_plugin_add`, (2) call `architect_plugin_catalog_list_full` to get exact param names, types, descriptions, CSV headers, AND `addonConfigSamples[]`, (3) for any `stringBlock`-shaped runtime config param (Ghosts timelines, C2 profiles, rule sets), scan `addonConfigSamples[].notes` for a story-match against the machine's purpose / assigned user before authoring from scratch. On match, fetch via `architect_plugin_catalog_get_addon_config_sample({ sampleId })`, tweak in memory (substitute SAMs, hostnames, file paths), and pass the tweaked blob to `_set_params`. (4) Configure remaining params normally.
 

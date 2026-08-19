@@ -183,19 +183,19 @@ Machines (DC is item #1 in AD-enabled VLANs):
 1. namingGuidance: "DC01-style name"
    role: domain-controller
    purpose: "Primary DC for {domain}"
-   plugins: [{pluginVersionId, displayName, required: true}]
+   plugins: [{pluginId, displayName, required: true}]
    complexity: complex
 
 2. namingGuidance: "APP01-style name"
    role: application-server
    purpose: "Hosts {application} for {department}"
-   plugins: [{pluginVersionId, displayName, required: true}]
+   plugins: [{pluginId, displayName, required: true}]
    complexity: medium
 
 3. namingGuidance: "WS01-style name"
    role: workstation
    purpose: "{department} user workstation"
-   plugins: [{pluginVersionId, displayName, required: false}]
+   plugins: [{pluginId, displayName, required: false}]
    complexity: simple
 ```
 
@@ -261,7 +261,7 @@ Execution sequence:
 
 **GATE 4: Budget Arithmetic.** VLAN machine allocations sum exactly to the total machine budget from `resourceBudget.quotas.maxMachines`. Print a budget table; fix any mismatch before proceeding.
 
-**GATE 5: Plugin Provenance.** Every `pluginVersionId` comes from an `architect_plugin_catalog_search` result in this session. If the catalog response line is not citable, the ID is hallucinated.
+**GATE 5: Plugin Provenance.** Every `pluginId` comes from an `architect_plugin_catalog_search` result in this session. If the catalog response line is not citable, the ID is hallucinated.
 
 **GATE 6: DC-First.** The Domain Controller is item #1 in every AD-enabled VLAN manifest -- it establishes the domain that all other machines join.
 
@@ -276,4 +276,4 @@ Execution sequence:
 - Flag unrealistic budgets (e.g., 3 AD-enabled VLANs with a budget of 4) before generating.
 - Only assign plugins that serve a real role on the VLAN -- skip force-fits.
 
-Final check: every domainFQDN lowercase and `.local`-suffixed, every pluginVersionId from a catalog search this session, DC is item #1 in every AD-enabled VLAN.
+Final check: every domainFQDN lowercase and `.local`-suffixed, every pluginId from a catalog search this session, DC is item #1 in every AD-enabled VLAN.

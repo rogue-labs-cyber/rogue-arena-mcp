@@ -111,7 +111,7 @@ If multiple candidate plugins match the catalog search, ask the user which one. 
 When configuring any plugin that exposes a `stringBlock`-shaped runtime config param (Ghosts timelines, BloodHound collection profiles, GoPhish campaigns, C2 implant configs, custom rule sets), default to the plugin's curated sample library before authoring from scratch.
 
 Flow:
-1. `architect_plugin_catalog_list_full` — returns `addonConfigSamples[{ sampleId, name, notes, language }]` per plugin version (summaries only, no code body — token-cheap).
+1. `architect_plugin_catalog_list_full` — returns `addonConfigSamples[{ sampleId, name, notes, language }]` per plugin (summaries only, no code body — token-cheap).
 2. Scan the `notes` field of each sample. Notes are the discovery surface — they describe what the sample does and which character/scenario archetype it fits.
 3. On a story-match (assigned user's role, machine purpose), call `architect_plugin_catalog_get_addon_config_sample({ sampleId })` to fetch the full code.
 4. Tweak in memory: rename users to the scenario's actual `samAccountName`s, swap hostnames, adjust file paths, tune per-scenario constants.

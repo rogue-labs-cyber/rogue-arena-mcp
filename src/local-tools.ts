@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { homedir } from "node:os";
 import type { AuthProvider } from "./auth.js";
 import type { HubClient } from "./hub-client.js";
+import { describeHubFailure } from "./hub-errors.js";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { randomUUID } from "node:crypto";
@@ -39,6 +40,32 @@ interface ScriptRunState {
 }
 
 const activeScriptRuns = new Map<string, ScriptRunState>();
+
+/** How long a finished transfer stays queryable (TRANSFER_CLEANUP_MS in tus-core.ts). */
+const TRANSFER_RETENTION_TEXT = "5 minutes";
+
+/** The status and cancel tools for each transfer family; a transfer ID only works with its own family's pair. */
+const TRANSFER_FAMILY_TOOLS: Record<TargetKind, { readonly what: string; readonly status: string; readonly cancel: string }> = {
+  vm: { what: "deployment VM", status: "deployment_transfer_status", cancel: "deployment_transfer_cancel" },
+  pluginVault: { what: "plugin vault", status: "plugin_dev_transfer_status", cancel: "plugin_dev_transfer_cancel" },
+  machineVault: { what: "machine vault", status: "architect_transfer_status", cancel: "architect_transfer_cancel" },
+  buildVM: { what: "build VM", status: "architect_deploy_transfer_status", cancel: "architect_deploy_transfer_cancel" },
+};
+
+function transferNotFound(transferId: string, kind: TargetKind): string {
+  return (
+    `Transfer ${transferId} not found. This MCP server keeps a transfer for ${TRANSFER_RETENTION_TEXT} after it ends and forgets it on restart, ` +
+    `so the ID is wrong, expired, or from another server process. Call ${TRANSFER_FAMILY_TOOLS[kind].status} without transferId to list the transfers it knows.`
+  );
+}
+
+function scriptRunNotFound(scriptRunId: string): string {
+  return (
+    `Script run ${scriptRunId} not found. Background script results are kept for ${SCRIPT_RUN_CLEANUP_MS / 60_000} minutes after the run ends, ` +
+    "only by the MCP server process that started it, so the ID is wrong or has expired. " +
+    "Call deployment_script_status without scriptRunId to list the runs it knows."
+  );
+}
 
 function finishScriptRun(
   state: ScriptRunState,
@@ -1220,9 +1247,8 @@ async function handleArchitectDeployDownload(
     });
 
     if (!generateRes.ok) {
-      const text = await generateRes.text();
-      console.error(`[rogue-arena-mcp] Download [${transferId}]: generate link failed (${generateRes.status}): ${text.replace(/[^\x20-\x7E\n]/g, "").slice(0, 500)}`);
-      throw new Error(`Failed to generate download link (HTTP ${generateRes.status})`);
+      const failure = describeHubFailure(generateRes.status, await generateRes.text(), { loginCommand: auth.loginCommand });
+      throw new Error(`Could not start the download of '${remoteFilePath}': ${failure}`);
     }
 
     const generateBody = (await generateRes.json()) as { downloadID: string };
@@ -1239,9 +1265,8 @@ async function handleArchitectDeployDownload(
     });
 
     if (!fetchRes.ok) {
-      const text = await fetchRes.text();
-      console.error(`[rogue-arena-mcp] Download [${transferId}]: fetch failed (${fetchRes.status}): ${text.replace(/[^\x20-\x7E\n]/g, "").slice(0, 500)}`);
-      throw new Error(`Failed to fetch download (HTTP ${fetchRes.status})`);
+      const failure = describeHubFailure(fetchRes.status, await fetchRes.text(), { loginCommand: auth.loginCommand });
+      throw new Error(`Could not fetch '${remoteFilePath}': ${failure}`);
     }
 
     if (!fetchRes.body) {
@@ -1303,11 +1328,7 @@ async function handleArchitectDeployDownload(
       }
     }
 
-    finishTransfer(
-      state,
-      isAbort ? "cancelled" : "failed",
-      isAbort ? "Transfer cancelled" : "Download failed — see server logs for details"
-    );
+    finishTransfer(state, isAbort ? "cancelled" : "failed", isAbort ? "Transfer cancelled" : err.message);
   });
 
   return {
@@ -1398,9 +1419,8 @@ async function handleActiveDeploymentDownload(
     });
 
     if (!generateRes.ok) {
-      const text = await generateRes.text();
-      console.error(`[rogue-arena-mcp] Download [${transferId}]: generate link failed (${generateRes.status}): ${text.replace(/[^\x20-\x7E\n]/g, "").slice(0, 500)}`);
-      throw new Error(`Failed to generate download link (HTTP ${generateRes.status})`);
+      const failure = describeHubFailure(generateRes.status, await generateRes.text(), { loginCommand: auth.loginCommand });
+      throw new Error(`Could not start the download of '${remoteFilePath}': ${failure}`);
     }
 
     const generateBody = (await generateRes.json()) as { downloadID: string };
@@ -1417,9 +1437,8 @@ async function handleActiveDeploymentDownload(
     });
 
     if (!fetchRes.ok) {
-      const text = await fetchRes.text();
-      console.error(`[rogue-arena-mcp] Download [${transferId}]: fetch failed (${fetchRes.status}): ${text.replace(/[^\x20-\x7E\n]/g, "").slice(0, 500)}`);
-      throw new Error(`Failed to fetch download (HTTP ${fetchRes.status})`);
+      const failure = describeHubFailure(fetchRes.status, await fetchRes.text(), { loginCommand: auth.loginCommand });
+      throw new Error(`Could not fetch '${remoteFilePath}': ${failure}`);
     }
 
     if (!fetchRes.body) {
@@ -1481,11 +1500,7 @@ async function handleActiveDeploymentDownload(
       }
     }
 
-    finishTransfer(
-      state,
-      isAbort ? "cancelled" : "failed",
-      isAbort ? "Transfer cancelled" : "Download failed — see server logs for details"
-    );
+    finishTransfer(state, isAbort ? "cancelled" : "failed", isAbort ? "Transfer cancelled" : err.message);
   });
 
   return {
@@ -1518,9 +1533,14 @@ function handleTransferStatus(
 
   if (transferId) {
     const state = activeTransfers.get(transferId);
-    if (!state || state.targetKind !== allowedKind) {
+    if (!state) {
+      return { content: [{ type: "text", text: transferNotFound(transferId, allowedKind) }], isError: true };
+    }
+    if (state.targetKind !== allowedKind) {
+      const owner = TRANSFER_FAMILY_TOOLS[state.targetKind];
       return {
-        content: [{ type: "text", text: JSON.stringify({ transfers: [], message: "Transfer not found." }, null, 2) }],
+        content: [{ type: "text", text: `Transfer ${transferId} is a ${owner.what} transfer; check it with ${owner.status}.` }],
+        isError: true,
       };
     }
     return {
@@ -1552,9 +1572,23 @@ async function handleTransferCancel(
   const { transferId } = parsed.data;
 
   const state = activeTransfers.get(transferId);
-  if (!state || state.status !== "in_progress" || state.targetKind !== allowedKind) {
+  if (!state) {
+    return { content: [{ type: "text", text: transferNotFound(transferId, allowedKind) }], isError: true };
+  }
+  if (state.targetKind !== allowedKind) {
+    const owner = TRANSFER_FAMILY_TOOLS[state.targetKind];
     return {
-      content: [{ type: "text", text: "Transfer not found or already completed." }],
+      content: [{ type: "text", text: `Transfer ${transferId} is a ${owner.what} transfer; cancel it with ${owner.cancel}.` }],
+      isError: true,
+    };
+  }
+  if (state.status !== "in_progress") {
+    const detail = state.error ? ` (${state.error})` : "";
+    return {
+      content: [{
+        type: "text",
+        text: `Transfer ${transferId} already ${state.status} at ${state.endTime ?? "an unknown time"}${detail}; there is no active transfer to cancel.`,
+      }],
       isError: true,
     };
   }
@@ -1698,9 +1732,7 @@ function handleScriptStatus(
   if (scriptRunId) {
     const state = activeScriptRuns.get(scriptRunId);
     if (!state) {
-      return {
-        content: [{ type: "text", text: JSON.stringify({ scriptRuns: [], message: "Script run not found or expired (results retained for 15 minutes)." }, null, 2) }],
-      };
+      return { content: [{ type: "text", text: scriptRunNotFound(scriptRunId) }], isError: true };
     }
     return {
       content: [{ type: "text", text: JSON.stringify({ scriptRuns: [serializeScriptRun(state)] }, null, 2) }],
@@ -1728,9 +1760,16 @@ function handleScriptCancel(
   const { scriptRunId } = parsed.data;
 
   const state = activeScriptRuns.get(scriptRunId);
-  if (!state || state.status !== "running") {
+  if (!state) {
+    return { content: [{ type: "text", text: scriptRunNotFound(scriptRunId) }], isError: true };
+  }
+  if (state.status !== "running") {
     return {
-      content: [{ type: "text", text: "Script run not found or already completed." }],
+      content: [{
+        type: "text",
+        text: `Script run ${scriptRunId} already ${state.status} at ${state.endTime ?? "an unknown time"}; there is no active run to cancel. ` +
+          "Read its result with deployment_script_status.",
+      }],
       isError: true,
     };
   }

@@ -1,11 +1,6 @@
 import { decodeJwt } from "jose";
-import {
-  loadTokens,
-  saveTokens,
-  clearTokens,
-  type StoredTokens,
-  type ActiveTokens,
-} from "./keychain.js";
+import type { StoredTokens, ActiveTokens } from "./keychain.js";
+import type { CredentialStore } from "./credential-store.js";
 import type { AuthProvider } from "./auth.js";
 import { execFileSync } from "node:child_process";
 
@@ -62,7 +57,7 @@ function tryOpenBrowser(url: string): void {
   }
 }
 
-export async function login(hubUrl: string, clientId: string): Promise<void> {
+export async function login(hubUrl: string, clientId: string, store: CredentialStore): Promise<void> {
   const keycloakBaseUrl = getKeycloakBaseUrl(hubUrl);
   const deviceEndpoint = getDeviceEndpoint(keycloakBaseUrl);
   const tokenEndpoint = getTokenEndpoint(keycloakBaseUrl);
@@ -121,9 +116,9 @@ export async function login(hubUrl: string, clientId: string): Promise<void> {
       };
 
       // Persists the refresh half only — see StoredTokens in keychain.ts.
-      await saveTokens(tokens);
+      await store.save(tokens);
       console.error(" done");
-      console.error(`Logged in as ${tokens.username}. Token valid for ~30 days.`);
+      console.error(`Logged in as ${tokens.username} (${store.describe()}). Token valid for ~30 days.`);
       return;
     }
 
@@ -150,41 +145,54 @@ export async function login(hubUrl: string, clientId: string): Promise<void> {
   throw new Error("Device code expired. Please try again.");
 }
 
-export async function logout(hubUrl: string, clientId: string): Promise<void> {
-  const tokens = await loadTokens();
-  if (!tokens) {
+export async function logout(hubUrl: string, clientId: string, store: CredentialStore): Promise<void> {
+  let tokens: StoredTokens | null;
+  let unreadable = false;
+  try {
+    tokens = await store.load();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[rogue-arena-mcp] Credential store unreadable (${store.describe()}): ${message}`);
+    tokens = null;
+    unreadable = true;
+  }
+
+  if (!tokens && !unreadable) {
     console.error("Not logged in.");
     return;
   }
 
-  const keycloakBaseUrl = getKeycloakBaseUrl(hubUrl);
-  const revokeEndpoint = getRevokeEndpoint(keycloakBaseUrl);
+  if (tokens) {
+    const keycloakBaseUrl = getKeycloakBaseUrl(hubUrl);
+    const revokeEndpoint = getRevokeEndpoint(keycloakBaseUrl);
 
-  try {
-    const res = await fetch(revokeEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: clientId,
-        token: tokens.refreshToken,
-        token_type_hint: "refresh_token",
-      }),
-    });
-    if (!res.ok) {
-      console.error(`Warning: Server-side revocation failed (${res.status}) — token may remain valid until expiry.`);
+    try {
+      const res = await fetch(revokeEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: clientId,
+          token: tokens.refreshToken,
+          token_type_hint: "refresh_token",
+        }),
+      });
+      if (!res.ok) {
+        console.error(`Warning: Server-side revocation failed (${res.status}) — token may remain valid until expiry.`);
+      }
+    } catch {
+      console.error("Warning: Server-side revocation failed — token may remain valid until expiry.");
     }
-  } catch {
-    console.error("Warning: Server-side revocation failed — token may remain valid until expiry.");
   }
 
-  await clearTokens();
-  console.error("Logged out. Local tokens cleared.");
+  await store.clear();
+  console.error(`Logged out. Local tokens cleared (${store.describe()}).`);
 }
 
 async function refreshAccessToken(
   hubUrl: string,
   clientId: string,
-  refreshToken: string
+  refreshToken: string,
+  store: CredentialStore
 ): Promise<ActiveTokens> {
   const keycloakBaseUrl = getKeycloakBaseUrl(hubUrl);
   const tokenEndpoint = getTokenEndpoint(keycloakBaseUrl);
@@ -214,9 +222,9 @@ async function refreshAccessToken(
     };
 
     try {
-      await saveTokens(tokens);
+      await store.save(tokens);
     } catch (err) {
-      console.error(`[rogue-arena-mcp] WARNING: Failed to save tokens to keychain: ${err instanceof Error ? err.message : err}`);
+      console.error(`[rogue-arena-mcp] WARNING: Failed to save tokens to ${store.describe()}: ${err instanceof Error ? err.message : err}`);
       console.error("[rogue-arena-mcp] Tokens are valid in-memory but will be lost on restart.");
     }
     return tokens;
@@ -232,18 +240,18 @@ async function refreshAccessToken(
   // during the normal refresh flow (which would cause the original race bug).
   const isInvalidGrant = text.includes("invalid_grant");
   if (isInvalidGrant) {
-    const keychainTokens = await loadTokens();
-    if (keychainTokens && keychainTokens.refreshToken !== refreshToken) {
-      // Keychain has a different token — another process refreshed or user re-logged in.
-      // Try refreshing with the keychain token.
-      console.error("[rogue-arena-mcp] In-memory token dead, found different token in keychain — attempting recovery");
+    const storedTokens = await store.load();
+    if (storedTokens && storedTokens.refreshToken !== refreshToken) {
+      // Store has a different token — another process refreshed or user re-logged in.
+      // Try refreshing with the stored token.
+      console.error(`[rogue-arena-mcp] In-memory token dead, found different token in ${store.describe()} — attempting recovery`);
       const retryRes = await fetch(tokenEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           grant_type: "refresh_token",
           client_id: clientId,
-          refresh_token: keychainTokens.refreshToken,
+          refresh_token: storedTokens.refreshToken,
         }),
       });
 
@@ -257,20 +265,19 @@ async function refreshAccessToken(
           userId: String(claims.sub ?? ""),
           username: String(claims["preferred_username"] ?? ""),
         };
-        try { await saveTokens(tokens); } catch { /* in-memory is fine */ }
-        console.error("[rogue-arena-mcp] Recovery successful — adopted tokens from keychain");
+        try { await store.save(tokens); } catch { /* in-memory is fine */ }
+        console.error(`[rogue-arena-mcp] Recovery successful — adopted tokens from ${store.describe()}`);
         return tokens;
       }
-      console.error("[rogue-arena-mcp] Keychain token also dead — session is truly gone");
+      console.error(`[rogue-arena-mcp] ${store.describe()} token also dead — session is truly gone`);
     }
   }
 
   const isTerminal = (status === 400 && isInvalidGrant) || status === 401;
-  const error = new RefreshError(
-    `Token refresh failed (${status}${isInvalidGrant ? " invalid_grant" : ""}). Run \`rogue-mcp login\` to re-authenticate.`,
+  throw new RefreshError(
+    `Token refresh failed (${status}${isInvalidGrant ? " invalid_grant" : ""})`,
     isTerminal ? "terminal" : "transient"
   );
-  throw error;
 }
 
 class RefreshError extends Error {
@@ -291,7 +298,13 @@ export class KeycloakAuthProvider implements AuthProvider {
   private consecutiveTransientFailures = 0; // transient: network errors, 5xx
   private lastTransientFailureAt = 0; // timestamp for auto-reset
 
-  constructor(hubUrl: string, clientId: string, tokens: StoredTokens) {
+  constructor(
+    hubUrl: string,
+    clientId: string,
+    tokens: StoredTokens,
+    private readonly store: CredentialStore,
+    readonly loginCommand: string
+  ) {
     this.hubUrl = hubUrl;
     this.clientId = clientId;
     // The access token is never persisted (see StoredTokens in keychain.ts),
@@ -306,9 +319,11 @@ export class KeycloakAuthProvider implements AuthProvider {
 
     if (this.currentTokens.expiresAt - now < REFRESH_BUFFER_SECONDS) {
       // Terminal circuit breaker — session is revoked/expired, don't waste requests
-      if (this.sessionDead) {
+      // unless a `rogue-mcp login` has since stored a new one.
+      if (this.sessionDead && !(await this.adoptStoredSession())) {
         throw new Error(
-          "Session expired (offline session revoked). Run `rogue-mcp login` to re-authenticate."
+          `Session expired (offline session revoked). Ask the user to run \`${this.loginCommand}\` in a terminal, then retry the call. ` +
+            "A login as a different user takes effect only after this MCP server reconnects."
         );
       }
 
@@ -317,7 +332,7 @@ export class KeycloakAuthProvider implements AuthProvider {
         const msSinceLastFailure = Date.now() - this.lastTransientFailureAt;
         if (msSinceLastFailure < CIRCUIT_RESET_MS) {
           throw new Error(
-            `Session unavailable (${this.consecutiveTransientFailures} consecutive transient failures, retry in ${Math.ceil((CIRCUIT_RESET_MS - msSinceLastFailure) / 1000)}s). Run \`rogue-mcp login\` if this persists.`
+            `Session unavailable (${this.consecutiveTransientFailures} consecutive transient failures, retry in ${Math.ceil((CIRCUIT_RESET_MS - msSinceLastFailure) / 1000)}s). If this persists, ask the user to run \`${this.loginCommand}\`.`
           );
         }
         // Cooldown elapsed — reset and try again
@@ -329,7 +344,8 @@ export class KeycloakAuthProvider implements AuthProvider {
         this.refreshPromise = refreshAccessToken(
           this.hubUrl,
           this.clientId,
-          this.currentTokens.refreshToken
+          this.currentTokens.refreshToken,
+          this.store
         ).then((tokens) => {
           this.currentTokens = tokens;
           this.consecutiveTransientFailures = 0;
@@ -353,8 +369,14 @@ export class KeycloakAuthProvider implements AuthProvider {
       try {
         await this.refreshPromise;
       } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        if (this.sessionDead) {
+          throw new Error(
+            `Session expired (${detail}). Ask the user to run \`${this.loginCommand}\` in a terminal, then retry the call.`
+          );
+        }
         throw new Error(
-          `Session expired. Run \`rogue-mcp login\` again. (${err instanceof Error ? err.message : err})`
+          `Could not refresh the Rogue Arena session (${detail}). Retry shortly; if it keeps failing, ask the user to run \`${this.loginCommand}\`.`
         );
       }
     }
@@ -374,6 +396,31 @@ export class KeycloakAuthProvider implements AuthProvider {
 
   invalidateAccessToken(): void {
     this.currentTokens = { ...this.currentTokens, expiresAt: 0 };
+  }
+
+  /**
+   * After a terminal refresh failure, a later `rogue-mcp login` stores a new
+   * refresh token. Adopt it (same user only) so the running server recovers
+   * without a restart; the next refresh mints an access token from it.
+   */
+  private async adoptStoredSession(): Promise<boolean> {
+    let stored: StoredTokens | null;
+    try {
+      stored = await this.store.load();
+    } catch {
+      return false;
+    }
+    if (
+      !stored ||
+      stored.refreshToken === this.currentTokens.refreshToken ||
+      stored.userId !== this.currentTokens.userId
+    ) {
+      return false;
+    }
+    console.error(`[rogue-arena-mcp] Adopting the session stored in ${this.store.describe()} after a dead session`);
+    this.currentTokens = { ...stored, accessToken: "", expiresAt: 0 };
+    this.sessionDead = false;
+    return true;
   }
 
   /** Reset the circuit breaker — called when fresh tokens are loaded externally (e.g., after rogue-mcp login). */

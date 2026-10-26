@@ -74,3 +74,16 @@ Closing advisory reminds the user that direct-shell results differ from C2-wrapp
 ## Handoff
 
 Same skill: "Run `/rogue-maldev` again anytime — your workspace and diary persist, we'll pick up where you left off." Resume logic in `refs/workspace-layout.md`.
+
+## Server selection
+
+- More than one Rogue Arena MCP server may be mounted, for example
+  `rogue-arena` (production, `mcp__rogue-arena__*`) and a second server
+  for another hub, whose tools carry its own `mcp__<server-name>__*` prefix.
+- Use the server the user named. If they did not name one and both are
+  mounted, ask which before any mutating call.
+- Call that server's `rogue_whoami` first; it reports `hub` and `profile`.
+  Say which hub you are working against.
+- Never mix servers within one task: every tool call in a task goes to the
+  same server, and canvas context set on one server does not exist on the
+  other.

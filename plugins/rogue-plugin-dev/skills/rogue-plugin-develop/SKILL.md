@@ -712,3 +712,16 @@ Or for a param-driven mapping:
 | `plugin_dev_delete_parent_plugin` | Remove a parent-plugin link |
 | `plugin_dev_create_automation` | Add an automation rule that stamps VLAN/Machine fields when the plugin runs |
 | `plugin_dev_delete_automation` | Remove an automation rule (re-read array first via plugin_dev_get) |
+
+## Server selection
+
+- More than one Rogue Arena MCP server may be mounted, for example
+  `rogue-arena` (production, `mcp__rogue-arena__*`) and a second server
+  for another hub, whose tools carry its own `mcp__<server-name>__*` prefix.
+- Use the server the user named. If they did not name one and both are
+  mounted, ask which before any mutating call.
+- Call that server's `rogue_whoami` first; it reports `hub` and `profile`.
+  Say which hub you are working against.
+- Never mix servers within one task: every tool call in a task goes to the
+  same server, and canvas context set on one server does not exist on the
+  other.

@@ -19,6 +19,8 @@ export interface AuthProvider {
    */
   getHeaders(): Promise<Record<string, string>>;
   getUserInfo(): { userId: string; username: string };
+  /** The terminal command that logs this server's profile back in (see `loginCommand` in profile.ts). */
+  readonly loginCommand: string;
   /** Force the next getHeaders() call to refresh, even if the token hasn't expired yet. */
   invalidateAccessToken(): void;
 }

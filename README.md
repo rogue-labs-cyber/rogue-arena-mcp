@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/rogue-labs-cyber/rogue-arena-mcp/ma
 irm https://raw.githubusercontent.com/rogue-labs-cyber/rogue-arena-mcp/main/install.ps1 | iex
 ```
 
-The installer checks for Node.js 18+ and git, then detects which agent CLI you have installed -- **Claude Code, OpenAI Codex, or both** -- and wires up whichever it finds. (If neither is installed, it stops and tells you how to get one -- it won't install an agent for you.) It builds the MCP server, registers it with your agent(s), and installs the skills.
+The installer checks for Node.js 20.9+ and git, then detects which agent CLI you have installed -- **Claude Code, OpenAI Codex, or both** -- and wires up whichever it finds. (If neither is installed, it stops and tells you how to get one -- it won't install an agent for you.) It builds the MCP server, registers it with your agent(s), and installs the skills.
 
 Then authenticate:
 

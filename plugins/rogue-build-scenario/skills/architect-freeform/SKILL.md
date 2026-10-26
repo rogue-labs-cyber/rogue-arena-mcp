@@ -50,9 +50,9 @@ For power users who know what they want and don't need a guided pipeline.
 
 1. Ask for canvas ID (or "Want to create a new one in the UI?")
 2. Set canvas via `rogue_set_canvas(canvasVersionId)`
-3. Read canvas overview: `architect_canvas_get_overview()`
-4. Present current state: "Your canvas has X VLANs, Y machines. What do you want to do?"
-6. On first mutation, remind: "Changes land as drafts — Apply Plan in the UI when ready."
+3. Read canvas overview: `architect_canvas_get_overview()`, and in the same turn the canvas diary: `diary_read({ limit: 10 })`. The diary holds what earlier Oracle chats and MCP sessions left: the design and why, the owner's decisions, what remains. Read it once per session, not every turn.
+4. Present current state: "Your canvas has X VLANs, Y machines. What do you want to do?" Add one line on any diary entry that bears on the request.
+5. On first mutation, remind: "Changes land as drafts — Apply Plan in the UI when ready."
 
 <examples>
 User: "Add a Windows file server to the Server Room VLAN."
@@ -160,3 +160,16 @@ Remind periodically after mutations: "Don't forget to Apply Plan in the UI when 
 ## Content Policy
 
 Enforced per refs/shared-rules.md.
+
+## Server selection
+
+- More than one Rogue Arena MCP server may be mounted, for example
+  `rogue-arena` (production, `mcp__rogue-arena__*`) and a second server
+  for another hub, whose tools carry its own `mcp__<server-name>__*` prefix.
+- Use the server the user named. If they did not name one and both are
+  mounted, ask which before any mutating call.
+- Call that server's `rogue_whoami` first; it reports `hub` and `profile`.
+  Say which hub you are working against.
+- Never mix servers within one task: every tool call in a task goes to the
+  same server, and canvas context set on one server does not exist on the
+  other.

@@ -747,3 +747,16 @@ Run /rogue-plugin-dev:rogue-plugin-develop to start building out the YAML.
 Set the **Platform** line to reflect what happened this session:
 - If Platform Integration ran: `Pushed name, description, type, initial OS templates, and params for <N> plugin(s). Develop narrows the OS templates once each plugin is built.`
 - If it was skipped: `Not connected yet — develop's first sync will push name, description, type, initial OS templates, and params when you hand it the plugin IDs.`
+
+## Server selection
+
+- More than one Rogue Arena MCP server may be mounted, for example
+  `rogue-arena` (production, `mcp__rogue-arena__*`) and a second server
+  for another hub, whose tools carry its own `mcp__<server-name>__*` prefix.
+- Use the server the user named. If they did not name one and both are
+  mounted, ask which before any mutating call.
+- Call that server's `rogue_whoami` first; it reports `hub` and `profile`.
+  Say which hub you are working against.
+- Never mix servers within one task: every tool call in a task goes to the
+  same server, and canvas context set on one server does not exist on the
+  other.

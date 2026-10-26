@@ -1,4 +1,5 @@
 import type { AuthProvider } from "./auth.js";
+import { describeHubFailure, HubRequestError } from "./hub-errors.js";
 
 export interface ToolSchema {
   name: string;
@@ -21,14 +22,9 @@ export interface ToolSchema {
   mcpVisibility: "always" | "discoverable";
 }
 
-function sanitizeErrorBody(text: string, maxLength = 200): string {
-  return text.replace(/[^\x20-\x7E\n]/g, "").slice(0, maxLength);
-}
-
 interface FetchWithRetryOptions {
   url: string;
   method: string;
-  headers: Record<string, string>;
   body?: string;
   auth: AuthProvider;
   label: string;
@@ -36,26 +32,29 @@ interface FetchWithRetryOptions {
 }
 
 async function fetchWithRetry(opts: FetchWithRetryOptions): Promise<Response> {
-  let res = await fetch(opts.url, {
-    method: opts.method,
-    headers: opts.headers,
-    ...(opts.body ? { body: opts.body } : {}),
-    ...(opts.signal ? { signal: opts.signal } : {}),
-  });
-
-  if (res.status === 401) {
-    console.error(`[rogue-arena-mcp] ${opts.label}: got 401, forcing token refresh and retrying`);
-    opts.auth.invalidateAccessToken();
-    const freshHeaders = await opts.auth.getHeaders();
-    res = await fetch(opts.url, {
+  const send = async (): Promise<Response> =>
+    fetch(opts.url, {
       method: opts.method,
-      headers: freshHeaders,
+      headers: await opts.auth.getHeaders(),
       ...(opts.body ? { body: opts.body } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
     });
-  }
 
-  return res;
+  const res = await send();
+  if (res.status !== 401) return res;
+
+  console.error(`[rogue-arena-mcp] ${opts.label}: got 401, forcing token refresh and retrying`);
+  opts.auth.invalidateAccessToken();
+  return send();
+}
+
+/** Reads a non-2xx response into the error an MCP caller sees. */
+async function refusal(res: Response, auth: AuthProvider, requestBody?: string): Promise<HubRequestError> {
+  const message = describeHubFailure(res.status, await res.text(), {
+    loginCommand: auth.loginCommand,
+    ...(requestBody === undefined ? {} : { requestBytes: Buffer.byteLength(requestBody) }),
+  });
+  return new HubRequestError(res.status, message);
 }
 
 export class HubClient {
@@ -68,34 +67,27 @@ export class HubClient {
   }
 
   async discoverTools(): Promise<ToolSchema[]> {
-    const headers = await this.auth.getHeaders();
-    const res = await fetch(`${this.hubUrl}/hub/mcp/vibe-tools/schema`, {
-      method: "GET",
-      headers,
+    return this.discover("/hub/mcp/vibe-tools/schema", "vibe/schema");
+  }
+
+  /** Throws when the hub does not serve the family's schema; the caller reports the family unavailable. */
+  async discoverPluginDevTools(): Promise<ToolSchema[]> {
+    return this.discover("/hub/mcp/plugin-dev-tools/schema", "plugin-dev/schema");
+  }
+
+  /** Throws when the hub does not serve the family's schema; the caller reports the family unavailable. */
+  async discoverActiveDeploymentTools(): Promise<ToolSchema[]> {
+    return this.discover("/hub/mcp/active-deployment-tools/schema", "active-deployment/schema");
+  }
+
+  private async discover(path: string, label: string): Promise<ToolSchema[]> {
+    const res = await fetchWithRetry({
+      url: `${this.hubUrl}${path}`, method: "GET",
+      auth: this.auth, label,
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Tool discovery failed (${res.status}): ${sanitizeErrorBody(text)}`);
-    }
-
-    const body = (await res.json()) as { tools: ToolSchema[] };
-    return body.tools;
-  }
-
-  async discoverPluginDevTools(): Promise<ToolSchema[]> {
-    const headers = await this.auth.getHeaders();
-    const res = await fetch(
-      `${this.hubUrl}/hub/mcp/plugin-dev-tools/schema`,
-      { method: "GET", headers }
-    );
-
-    if (!res.ok) {
-      // Plugin dev tools route may not exist yet — return empty
-      console.error(
-        `[rogue-arena-mcp] Plugin dev tool discovery returned ${res.status} — skipping`
-      );
-      return [];
+      throw await refusal(res, this.auth);
     }
 
     const body = (await res.json()) as { tools: ToolSchema[] };
@@ -106,39 +98,19 @@ export class HubClient {
     actionType: string,
     input: Record<string, unknown>
   ): Promise<{ success: boolean; data?: unknown; error?: string }> {
-    const headers = await this.auth.getHeaders();
     const url = `${this.hubUrl}/hub/mcp/plugin-dev-tools/${encodeURIComponent(actionType)}`;
     const body = JSON.stringify({ input });
 
     const res = await fetchWithRetry({
-      url, method: "POST", headers, body,
+      url, method: "POST", body,
       auth: this.auth, label: `plugin-dev/${actionType}`,
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Plugin dev tool execution failed (${res.status}): ${sanitizeErrorBody(text)}`);
+      throw await refusal(res, this.auth, body);
     }
 
     return (await res.json()) as { success: boolean; data?: unknown; error?: string };
-  }
-
-  async discoverActiveDeploymentTools(): Promise<ToolSchema[]> {
-    const headers = await this.auth.getHeaders();
-    const res = await fetch(
-      `${this.hubUrl}/hub/mcp/active-deployment-tools/schema`,
-      { method: "GET", headers }
-    );
-
-    if (!res.ok) {
-      console.error(
-        `[rogue-arena-mcp] Active deployment tool discovery returned ${res.status} — skipping`
-      );
-      return [];
-    }
-
-    const body = (await res.json()) as { tools: ToolSchema[] };
-    return body.tools;
   }
 
   async executeActiveDeploymentTool(
@@ -146,40 +118,34 @@ export class HubClient {
     input: Record<string, unknown>,
     options?: { signal?: AbortSignal }
   ): Promise<{ success: boolean; data?: unknown; error?: string }> {
-    const headers = await this.auth.getHeaders();
     const url = `${this.hubUrl}/hub/mcp/active-deployment-tools/${encodeURIComponent(actionType)}`;
     const body = JSON.stringify({ input });
 
     const res = await fetchWithRetry({
-      url, method: "POST", headers, body,
+      url, method: "POST", body,
       auth: this.auth, label: `active-deployment/${actionType}`,
       signal: options?.signal,
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Active deployment tool execution failed (${res.status}): ${sanitizeErrorBody(text)}`);
+      throw await refusal(res, this.auth, body);
     }
 
     return (await res.json()) as { success: boolean; data?: unknown; error?: string };
   }
 
+  /** Throws a HubRequestError carrying the hub's status when the caller may not open the canvas. */
   async validateCanvas(canvasVersionId: string): Promise<void> {
-    const headers = await this.auth.getHeaders();
-    const res = await fetch(
-      `${this.hubUrl}/hub/mcp/vibe-tools/validate-canvas`,
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ canvasVersionId }),
-      }
-    );
+    const body = JSON.stringify({ canvasVersionId });
+    const res = await fetchWithRetry({
+      url: `${this.hubUrl}/hub/mcp/vibe-tools/validate-canvas`, method: "POST", body,
+      auth: this.auth, label: "vibe/validate-canvas",
+    });
 
     if (!res.ok) {
-      const text = await res.text();
-      console.error(`[rogue-arena-mcp] validate-canvas failed: ${res.status} ${sanitizeErrorBody(text)}`);
-      const body = (() => { try { return JSON.parse(text); } catch { return { error: text }; } })() as { error?: string };
-      throw new Error(body.error ?? "Canvas validation failed");
+      const error = await refusal(res, this.auth, body);
+      console.error(`[rogue-arena-mcp] validate-canvas failed: ${error.message}`);
+      throw error;
     }
   }
 
@@ -188,18 +154,16 @@ export class HubClient {
     canvasVersionId: string,
     input: Record<string, unknown>
   ): Promise<{ success: boolean; data?: unknown; error?: string }> {
-    const headers = await this.auth.getHeaders();
     const url = `${this.hubUrl}/hub/mcp/vibe-tools/${encodeURIComponent(actionType)}`;
     const body = JSON.stringify({ canvasVersionId, input });
 
     const res = await fetchWithRetry({
-      url, method: "POST", headers, body,
+      url, method: "POST", body,
       auth: this.auth, label: `vibe/${actionType}`,
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Tool execution failed (${res.status}): ${sanitizeErrorBody(text)}`);
+      throw await refusal(res, this.auth, body);
     }
 
     return (await res.json()) as { success: boolean; data?: unknown; error?: string };

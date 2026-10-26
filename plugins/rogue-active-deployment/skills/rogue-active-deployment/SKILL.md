@@ -56,6 +56,7 @@ Complete these steps BEFORE any other action. No exceptions — not for "quick c
    - If **multiple deployments**: present a numbered list and ask which one.
    - If **zero deployments**: tell the user they have no active deployments.
 3. **List VMs** — Call `deployment_list_vms` with the chosen deployment record ID and present the VM list to the user (names, IPs, OS, status). If you skip this, you will guess at VM IDs, OS types, and credentials — all of which will be wrong.
+4. **Read the deployment diary** — In the same turn as step 3, call `deployment_diary_read` with the same deployment record ID. It holds what earlier sessions (Oracle chats and MCP sessions) recorded on this deployment: findings, credentials, footholds, open work. When it has entries, say in one or two lines where the last session left off and pick up from there. Read it once per session, not every turn.
 
 ## Workspace Resolution (Future Use)
 
@@ -164,7 +165,7 @@ Three personas use this skill. All get the same minimal guardrails — these are
 ## Constraints
 
 - This skill is fully independent from `rogue-build-scenario`. Different VM classes, different tools, no overlap.
-- Use `deployment_diary_write` to log credentials, loot, and engagement progress. Use `deployment_diary_read` at the START of every session to review prior findings. These are NOT the same as canvas `diary_read`/`diary_write` (those are for scenario building).
+- Use `deployment_diary_write` to log credentials, loot, and engagement progress. Hard gate 4 calls `deployment_diary_read` at the start of every session. These are NOT the same as canvas `diary_read`/`diary_write` (those are for scenario building).
 - Warn before destructive commands (`rm -rf`, `format`, `del /s`) and before snapshot reverts.
 - Prefer `deployment_read_file` over `deployment_run_script` + `cat`/`type` for reading files. Prefer `deployment_grep_file` over `deployment_run_script` + `grep`/`findstr` for searching. Prefer `deployment_process_list` over `deployment_run_script` + `ps`/`tasklist` for process listing. The dedicated tools are faster and return structured data.
 - Use `deployment_dir_listing` to confirm remote file paths before reading file contents.
@@ -172,3 +173,16 @@ Three personas use this skill. All get the same minimal guardrails — these are
 ---
 
 **Remember: `deployment_run_script` for VMs. NEVER Bash. Bash hits the host machine.**
+
+## Server selection
+
+- More than one Rogue Arena MCP server may be mounted, for example
+  `rogue-arena` (production, `mcp__rogue-arena__*`) and a second server
+  for another hub, whose tools carry its own `mcp__<server-name>__*` prefix.
+- Use the server the user named. If they did not name one and both are
+  mounted, ask which before any mutating call.
+- Call that server's `rogue_whoami` first; it reports `hub` and `profile`.
+  Say which hub you are working against.
+- Never mix servers within one task: every tool call in a task goes to the
+  same server, and canvas context set on one server does not exist on the
+  other.

@@ -6,7 +6,7 @@ set -e
 
 REPO_URL="https://github.com/rogue-labs-cyber/rogue-arena-mcp.git"
 INSTALL_DIR="${HOME}/.rogue-arena-mcp"
-NODE_MIN_VERSION=18
+NODE_MIN_VERSION="20.9"  # sharp 0.35 requires Node.js >= 20.9.0
 
 echo ""
 echo "  Rogue Arena MCP Server Installer"
@@ -65,15 +65,19 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 # ── Check for Node.js ──────────────────────────────────────────────
+# Succeeds when the node on PATH is at least NODE_MIN_VERSION (major.minor).
+node_is_new_enough() {
+  node -e 'const [major, minor] = process.versions.node.split(".").map(Number); const [needMajor, needMinor] = process.argv[1].split(".").map(Number); process.exit(major > needMajor || (major === needMajor && minor >= needMinor) ? 0 : 1);' "$NODE_MIN_VERSION" 2>/dev/null
+}
+
 NEED_NODE=false
 if ! command -v node >/dev/null 2>&1; then
   NEED_NODE=true
   echo "  Node.js is not installed."
 else
-  NODE_VERSION=$(node -v | sed 's/^v//' | cut -d. -f1)
-  if [ "$NODE_VERSION" -lt "$NODE_MIN_VERSION" ]; then
+  if ! node_is_new_enough; then
     NEED_NODE=true
-    echo "  Node.js v${NODE_VERSION} found, but v${NODE_MIN_VERSION}+ is required."
+    echo "  Node.js v$(node -v | sed 's/^v//') found, but v${NODE_MIN_VERSION}+ is required."
   fi
 fi
 
@@ -97,6 +101,11 @@ if [ "$NEED_NODE" = true ]; then
   # Verify it worked
   if ! command -v node >/dev/null 2>&1; then
     echo "  Node.js installation failed. Install manually from https://nodejs.org"
+    exit 1
+  fi
+  if ! node_is_new_enough; then
+    echo "  $PKG installed Node.js v$(node -v | sed 's/^v//'), but v${NODE_MIN_VERSION}+ is required."
+    echo "  Install a current LTS from https://nodejs.org and re-run this script."
     exit 1
   fi
 fi

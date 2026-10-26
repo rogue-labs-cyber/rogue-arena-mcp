@@ -1,12 +1,34 @@
 import { z } from "zod";
 import type { Session } from "./session.js";
 import type { HubClient, ToolSchema } from "./hub-client.js";
+import { HubRequestError } from "./hub-errors.js";
 
 let discoverableToolsCache: ToolSchema[] = [];
 let alwaysToolsCache: ToolSchema[] = [];
 
-/** Set of tool names currently in the ListTools response */
-const promotedToolNames = new Set<string>();
+/** The hub's tool categories. Only ROGUE_ARCHITECT_BUILDER tools carry a subcategory. */
+const ROGUE_ARCHITECT_BUILDER = "ROGUE_ARCHITECT_BUILDER";
+const TOOL_CATEGORIES: readonly string[] = [ROGUE_ARCHITECT_BUILDER, "PLUGIN_DEV", "ACTIVE_DEPLOYMENT", "CURRICULUM"];
+const ARCHITECT_SUBCATEGORIES: readonly string[] = [
+  "canvas", "environment", "forest", "vlan", "machine", "assigned_plugin",
+  "plugin_catalog", "files", "deploy", "deployment", "exploit", "eval",
+];
+
+/** A tool family whose schema discovery failed when the server started, so its tools cannot be called. */
+export interface UnavailableToolFamily {
+  /** The hub category, e.g. "PLUGIN_DEV". */
+  readonly category: string;
+  /** How the caller reads it, e.g. "plugin-dev". */
+  readonly label: string;
+  /** Every hub tool of the family starts with this, e.g. "plugin_dev_". */
+  readonly namePrefix: string;
+  /** HTTP status of the failed discovery; absent when the hub never answered. */
+  readonly status?: number;
+  /** Why discovery failed, as the caller should read it. */
+  readonly reason: string;
+}
+
+let unavailableFamiliesCache: UnavailableToolFamily[] = [];
 
 /** Callback to convert a hub tool to MCP tool format — set by index.ts */
 let toMcpToolFn: ((tool: ToolSchema) => Record<string, unknown>) | undefined;
@@ -22,8 +44,27 @@ export function setAlwaysTools(tools: ToolSchema[]): void {
   alwaysToolsCache = tools;
 }
 
-export function clearPromotedTools(): void {
-  promotedToolNames.clear();
+export function setUnavailableToolFamilies(families: UnavailableToolFamily[]): void {
+  unavailableFamiliesCache = families;
+}
+
+export function unavailableToolFamilies(): readonly UnavailableToolFamily[] {
+  return unavailableFamiliesCache;
+}
+
+export function describeUnavailableFamily(family: UnavailableToolFamily, toolName?: string): string {
+  const status = family.status === undefined ? "no response" : String(family.status);
+  const target = toolName === undefined ? "" : `, so ${toolName} cannot be called`;
+  return (
+    `${family.label} tools unavailable: discovery failed (${status}) when this MCP server started${target}. ` +
+    "Retrying the call will not help: run rogue_auth_status to check the session, then reconnect this MCP server to retry discovery. " +
+    `Discovery error: ${family.reason}`
+  );
+}
+
+/** The failed family a tool name belongs to, if any. */
+export function unavailableFamilyForTool(toolName: string): UnavailableToolFamily | undefined {
+  return unavailableFamiliesCache.find((family) => toolName.startsWith(family.namePrefix));
 }
 
 export function setToolPromotion(
@@ -55,7 +96,7 @@ export const META_TOOLS = [
   {
     name: "rogue_whoami",
     description:
-      "Show the current authenticated user context (user ID, username, session canvas). Useful for debugging auth issues.",
+      "Show the current authenticated user context (user ID, username, session canvas, hub URL, profile). Call this to confirm WHICH Rogue Arena server you are talking to when more than one is mounted.",
     inputSchema: {
       type: "object" as const,
       properties: {},
@@ -71,13 +112,11 @@ export const META_TOOLS = [
       properties: {
         category: {
           type: "string",
-          description:
-            "Filter by category: ROGUE_ARCHITECT_BUILDER, PLUGIN_DEV, ACTIVE_DEPLOYMENT, CURRICULUM",
+          description: `Filter by category: ${TOOL_CATEGORIES.join(", ")}`,
         },
         subcategory: {
           type: "string",
-          description:
-            "Filter within ROGUE_ARCHITECT_BUILDER by domain: canvas, forest, vlan, machine, assigned_plugin, plugin_catalog, files, deploy, exploit",
+          description: `Filter within ${ROGUE_ARCHITECT_BUILDER} by domain (other categories have no subcategories): ${ARCHITECT_SUBCATEGORIES.join(", ")}`,
         },
         search: {
           type: "string",
@@ -96,6 +135,13 @@ export interface MetaToolResult {
   isError?: boolean;
 }
 
+export interface ServerIdentity {
+  readonly hubUrl: string;
+  readonly profile: string;
+  /** The terminal command that logs this profile back in. */
+  readonly loginCommand: string;
+}
+
 // ── Zod schemas ──────────────────────────────────────────────────────
 
 const SetCanvasSchema = z
@@ -104,7 +150,8 @@ const SetCanvasSchema = z
   })
   .strict();
 
-const WhoAmISchema = z.object({}).strict();
+/** rogue_whoami and rogue_auth_status take no arguments. */
+const NoArgsSchema = z.object({}).strict();
 
 const DiscoverToolsSchema = z
   .object({
@@ -128,11 +175,42 @@ function parseInput<T>(
   };
 }
 
+/** rogue_auth_status refuses unknown keys, as rogue_whoami does; undefined when the arguments are valid. */
+export function authStatusArgsRefusal(args: Record<string, unknown>): MetaToolResult | undefined {
+  const parsed = parseInput(NoArgsSchema, args);
+  return parsed.success ? undefined : { content: [{ type: "text", text: parsed.error }], isError: true };
+}
+
+function canvasRefusal(canvasVersionId: string, err: Error): string {
+  if (err instanceof HubRequestError && (err.status === 403 || err.status === 404)) {
+    return `Canvas '${canvasVersionId}' not found or you don't have access to it. Check the canvas version ID (it is in the canvas URL in Rogue Arena).`;
+  }
+  return `Could not select canvas '${canvasVersionId}': ${err.message}`;
+}
+
+function discoverRefusal(text: string): MetaToolResult {
+  return { content: [{ type: "text", text }], isError: true };
+}
+
+/** Every category the caller may name: the hub's four, plus any a newer hub reports. */
+function knownCategories(tools: readonly ToolSchema[]): string[] {
+  return [...new Set([...TOOL_CATEGORIES, ...tools.map((t) => t.category.toUpperCase())])];
+}
+
+/** The architect subcategories the discovered tools actually carry (the help text's list when none are cached). */
+function knownSubcategories(tools: readonly ToolSchema[]): string[] {
+  const seen = tools.flatMap((t) =>
+    t.category.toUpperCase() === ROGUE_ARCHITECT_BUILDER && t.subcategory ? [t.subcategory.toLowerCase()] : []
+  );
+  return seen.length === 0 ? [...ARCHITECT_SUBCATEGORIES] : [...new Set(seen)].sort();
+}
+
 export async function handleMetaTool(
   toolName: string,
   args: Record<string, unknown>,
   session: Session,
-  hub: HubClient
+  hub: Pick<HubClient, "discoverTools" | "validateCanvas">,
+  identity: ServerIdentity
 ): Promise<MetaToolResult> {
   switch (toolName) {
     case "rogue_set_canvas": {
@@ -144,11 +222,9 @@ export async function handleMetaTool(
 
       try {
         await hub.validateCanvas(canvasVersionId);
-      } catch {
-        return {
-          content: [{ type: "text", text: `Canvas '${canvasVersionId}' not found or you don't have edit access to it.` }],
-          isError: true,
-        };
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        return { content: [{ type: "text", text: canvasRefusal(canvasVersionId, error) }], isError: true };
       }
 
       session.setCanvas(canvasVersionId);
@@ -163,7 +239,7 @@ export async function handleMetaTool(
     }
 
     case "rogue_whoami": {
-      const parsed = parseInput(WhoAmISchema, args);
+      const parsed = parseInput(NoArgsSchema, args);
       if (!parsed.success) {
         return { content: [{ type: "text", text: parsed.error }], isError: true };
       }
@@ -176,9 +252,10 @@ export async function handleMetaTool(
         authStatus = "ok";
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("expired") || msg.includes("401") || msg.includes("invalid_client")) {
+        const unauthorized = err instanceof HubRequestError && err.status === 401;
+        if (unauthorized || msg.includes("expired") || msg.includes("invalid_client")) {
           authStatus = "expired";
-          authDetail = "Session expired. Run: rogue-mcp login";
+          authDetail = `Session expired. Ask the user to run \`${identity.loginCommand}\` in a terminal.`;
         } else {
           authStatus = "error";
           authDetail = msg;
@@ -193,6 +270,8 @@ export async function handleMetaTool(
               {
                 userId: session.userId,
                 username: session.username,
+                hub: identity.hubUrl,
+                profile: identity.profile,
                 canvasVersionId: session.canvasVersionId ?? "(not set)",
                 authStatus,
                 ...(authDetail ? { authDetail } : {}),
@@ -226,20 +305,42 @@ export async function handleMetaTool(
       }
 
       // Search all hub tools (both always-visible and discoverable).
-      let results = [...alwaysToolsCache, ...discoverableToolsCache];
+      const allTools = [...alwaysToolsCache, ...discoverableToolsCache];
+      const categories = knownCategories(allTools);
+      const subcategories = knownSubcategories(allTools);
+      const categoryHelp = `Valid categories: ${categories.join(", ")}. Subcategories (${ROGUE_ARCHITECT_BUILDER} only): ${subcategories.join(", ")}.`;
+      const upperCategory = category ? category.toUpperCase() : undefined;
 
-      if (category) {
-        const upper = category.toUpperCase();
-        results = results.filter((t) => t.category.toUpperCase() === upper);
+      if (upperCategory !== undefined && !categories.includes(upperCategory)) {
+        return discoverRefusal(`Unknown category "${category}". ${categoryHelp}`);
       }
 
       if (subcategory) {
-        const appliedCategory = category?.toUpperCase();
-        const rabOnly = !appliedCategory || appliedCategory === "ROGUE_ARCHITECT_BUILDER";
-        if (rabOnly) {
-          const lower = subcategory.toLowerCase();
-          results = results.filter((t) => t.subcategory?.toLowerCase() === lower);
+        if (upperCategory !== undefined && upperCategory !== ROGUE_ARCHITECT_BUILDER) {
+          return discoverRefusal(
+            `The subcategory filter applies only to ${ROGUE_ARCHITECT_BUILDER}; ${upperCategory} tools have no subcategories. ` +
+              `Drop subcategory "${subcategory}", or use search. ${categoryHelp}`
+          );
         }
+        if (!subcategories.includes(subcategory.toLowerCase())) {
+          return discoverRefusal(`Unknown subcategory "${subcategory}". ${categoryHelp}`);
+        }
+      }
+
+      const outage = unavailableFamiliesCache.find((family) => family.category === upperCategory);
+      if (outage) {
+        return discoverRefusal(describeUnavailableFamily(outage));
+      }
+
+      let results = allTools;
+
+      if (upperCategory !== undefined) {
+        results = results.filter((t) => t.category.toUpperCase() === upperCategory);
+      }
+
+      if (subcategory) {
+        const lower = subcategory.toLowerCase();
+        results = results.filter((t) => t.subcategory?.toLowerCase() === lower);
       }
 
       if (search) {
@@ -252,22 +353,25 @@ export async function handleMetaTool(
       }
 
       if (results.length === 0) {
+        const outageNote = unavailableFamiliesCache.map((family) => ` ${describeUnavailableFamily(family)}`).join("");
         return {
           content: [
             {
               type: "text",
-              text: `No tools found matching ${[category ? `category="${category}"` : "", subcategory ? `subcategory="${subcategory}"` : "", search ? `search="${search}"` : ""].filter(Boolean).join(" and ")}. Try a broader search or different category.`,
+              text: `No tools found matching ${[category ? `category="${category}"` : "", subcategory ? `subcategory="${subcategory}"` : "", search ? `search="${search}"` : ""].filter(Boolean).join(" and ")}. Try a broader search or different category. ${categoryHelp}${outageNote}`,
             },
           ],
         };
       }
 
-      // Promote discovered tools to the ListTools response
+      // Promote discovered tools to the ListTools response. Results include
+      // always-listed tools, so a name already listed is never added again.
       let newlyPromoted = 0;
       if (listedToolsRef && toMcpToolFn) {
+        const listedNames = new Set(listedToolsRef.map((listed) => listed.name));
         for (const tool of results) {
-          if (!promotedToolNames.has(tool.name)) {
-            promotedToolNames.add(tool.name);
+          if (!listedNames.has(tool.name)) {
+            listedNames.add(tool.name);
             listedToolsRef.push(toMcpToolFn(tool));
             newlyPromoted++;
           }

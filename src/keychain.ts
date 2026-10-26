@@ -1,15 +1,16 @@
 import { getPassword, setPassword, deletePassword } from "cross-keychain";
+import { z } from "zod";
+import type { CredentialStore } from "./credential-store.js";
 
 const SERVICE_NAME = "rogue-arena-mcp";
-const ACCOUNT_NAME = "default";
 
 /**
- * What we persist to the OS credential store.
+ * What we persist to the credential store.
  *
  * Deliberately does NOT include the access token or its expiry. Windows
  * CredWrite caps a credential blob at 2560 UTF-16 bytes; the access token
  * alone is ~1729 chars (~3458 bytes), so storing it made every Windows
- * login fail outright (BUG-032). It is also pointless: access tokens live
+ * login fail outright. It is also pointless: access tokens live
  * 300s, so a persisted one is stale on virtually every process start and
  * gets refreshed immediately anyway.
  *
@@ -29,31 +30,60 @@ export interface ActiveTokens extends StoredTokens {
   expiresAt: number; // Unix timestamp in seconds
 }
 
-export async function loadTokens(): Promise<StoredTokens | null> {
-  try {
-    const raw = await getPassword(SERVICE_NAME, ACCOUNT_NAME);
-    if (!raw) return null;
-    return JSON.parse(raw) as StoredTokens;
-  } catch {
-    return null;
+/** The three OS-keychain primitives, injectable for tests. */
+export interface KeychainBackend {
+  getPassword(service: string, account: string): Promise<string | null>;
+  setPassword(service: string, account: string, password: string): Promise<void>;
+  deletePassword(service: string, account: string): Promise<boolean | void>;
+}
+
+const OS_KEYCHAIN: KeychainBackend = { getPassword, setPassword, deletePassword };
+
+const StoredTokensSchema = z.object({ refreshToken: z.string(), userId: z.string(), username: z.string() });
+
+export function parseStoredTokens(value: object): StoredTokens | null {
+  const parsed = StoredTokensSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+/** Credential store backed by the OS keychain; the account name is the profile. */
+export class KeychainCredentialStore implements CredentialStore {
+  constructor(
+    private readonly profileName: string,
+    private readonly backend: KeychainBackend = OS_KEYCHAIN
+  ) {}
+
+  async load(): Promise<StoredTokens | null> {
+    try {
+      const raw = await this.backend.getPassword(SERVICE_NAME, this.profileName);
+      if (!raw) return null;
+      const parsed: object = JSON.parse(raw);
+      return parseStoredTokens(parsed);
+    } catch {
+      return null;
+    }
   }
-}
 
-export async function saveTokens(tokens: StoredTokens): Promise<void> {
-  // Destructure explicitly so an ActiveTokens caller cannot accidentally
-  // widen the blob back over the Windows credential cap (BUG-032).
-  const { refreshToken, userId, username } = tokens;
-  await setPassword(
-    SERVICE_NAME,
-    ACCOUNT_NAME,
-    JSON.stringify({ refreshToken, userId, username })
-  );
-}
+  async save(tokens: StoredTokens): Promise<void> {
+    // Destructure explicitly so an ActiveTokens caller cannot accidentally
+    // widen the blob back over the Windows credential cap.
+    const { refreshToken, userId, username } = tokens;
+    await this.backend.setPassword(
+      SERVICE_NAME,
+      this.profileName,
+      JSON.stringify({ refreshToken, userId, username })
+    );
+  }
 
-export async function clearTokens(): Promise<void> {
-  try {
-    await deletePassword(SERVICE_NAME, ACCOUNT_NAME);
-  } catch {
-    // Ignore — may not exist
+  async clear(): Promise<void> {
+    try {
+      await this.backend.deletePassword(SERVICE_NAME, this.profileName);
+    } catch {
+      // Ignore — may not exist
+    }
+  }
+
+  describe(): string {
+    return `keychain:${this.profileName}`;
   }
 }

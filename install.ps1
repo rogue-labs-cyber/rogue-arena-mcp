@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 
 $RepoUrl = "https://github.com/rogue-labs-cyber/rogue-arena-mcp.git"
 $InstallDir = Join-Path $env:USERPROFILE ".rogue-arena-mcp"
-$NodeMinVersion = 18
+$NodeMinVersion = [version]"20.9"  # sharp 0.35 requires Node.js >= 20.9.0
 
 Write-Host ""
 Write-Host "  Rogue Arena MCP Server Installer"
@@ -57,8 +57,8 @@ if (-not $nodeCmd) {
     $needNode = $true
     Write-Host "  Node.js is not installed."
 } else {
-    $nodeVersion = (node -v) -replace '^v', '' -split '\.' | Select-Object -First 1
-    if ([int]$nodeVersion -lt $NodeMinVersion) {
+    $nodeVersion = [version](((node -v) -replace '^v', '') -split '-' | Select-Object -First 1)
+    if ($nodeVersion -lt $NodeMinVersion) {
         $needNode = $true
         Write-Host "  Node.js v$nodeVersion found, but v${NodeMinVersion}+ is required."
     }

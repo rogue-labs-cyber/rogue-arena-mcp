@@ -223,3 +223,16 @@ Curriculum is self-describing. Call `curriculum_get_sections` (or `curriculum_ge
 ## Critical Reminder
 
 Always read before writing. Always read before writing. If you are about to call `curriculum_update_block`, `curriculum_insert_block`, `curriculum_remove_block`, or `curriculum_reorder_blocks` without having called `curriculum_get_chapter_blocks` on that chapter in this session, stop and read first.
+
+## Server selection
+
+- More than one Rogue Arena MCP server may be mounted, for example
+  `rogue-arena` (production, `mcp__rogue-arena__*`) and a second server
+  for another hub, whose tools carry its own `mcp__<server-name>__*` prefix.
+- Use the server the user named. If they did not name one and both are
+  mounted, ask which before any mutating call.
+- Call that server's `rogue_whoami` first; it reports `hub` and `profile`.
+  Say which hub you are working against.
+- Never mix servers within one task: every tool call in a task goes to the
+  same server, and canvas context set on one server does not exist on the
+  other.

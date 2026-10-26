@@ -7,11 +7,18 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import sharp from "sharp";
 import { HubClient, type ToolSchema } from "./hub-client.js";
+import { HubRequestError } from "./hub-errors.js";
 import type { AuthProvider } from "./auth.js";
 import { KeycloakAuthProvider } from "./auth-keycloak.js";
-import { loadTokens } from "./keychain.js";
+import type { StoredTokens } from "./keychain.js";
+import { loginCommand, resolveProfile } from "./profile.js";
+import { createCredentialStore } from "./credential-store.js";
 import { Session } from "./session.js";
-import { META_TOOLS, handleMetaTool, isMetaTool, setDiscoverableTools, setAlwaysTools, setToolPromotion, clearPromotedTools } from "./meta-tools.js";
+import {
+  META_TOOLS, handleMetaTool, isMetaTool, setDiscoverableTools, setAlwaysTools, setToolPromotion,
+  setUnavailableToolFamilies, unavailableToolFamilies, unavailableFamilyForTool, describeUnavailableFamily, authStatusArgsRefusal,
+  type ServerIdentity, type UnavailableToolFamily,
+} from "./meta-tools.js";
 import { LOCAL_TOOLS, isLocalTool, handleLocalTool } from "./local-tools.js";
 
 // ── Screenshot helper ───────────────────────────────────────────────
@@ -86,6 +93,10 @@ async function tryBuildScreenshotResponse(
 // ── Config from env ──────────────────────────────────────────────────
 const HUB_URL = process.env.ROGUE_HUB_URL ?? "https://arena.roguelabs.io";
 const CLIENT_ID = process.env.ROGUE_CLIENT_ID ?? "rogue-mcp";
+const PROFILE = resolveProfile(process.env);
+const LOGIN_HINT = loginCommand(PROFILE, HUB_URL);
+const IDENTITY: ServerIdentity = { hubUrl: HUB_URL, profile: PROFILE.name, loginCommand: LOGIN_HINT };
+const CREDENTIALS = createCredentialStore(process.env, PROFILE);
 
 // ── Auth status tracking ────────────────────────────────────────────
 type AuthState =
@@ -125,20 +136,28 @@ function stopBackgroundRefresh(): void {
 
 // ── Build auth provider ─────────────────────────────────────────────
 async function createAuthProvider(): Promise<AuthProvider | null> {
-  const tokens = await loadTokens();
+  let tokens: StoredTokens | null;
+  try {
+    tokens = await CREDENTIALS.load();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[rogue-arena-mcp] Credential store unreadable (${CREDENTIALS.describe()}): ${message}`);
+    currentAuthState = { status: "error", error: message };
+    return null;
+  }
   if (!tokens) {
-    console.error("[rogue-arena-mcp] Not logged in.");
-    console.error("[rogue-arena-mcp] Run: rogue-mcp login");
+    console.error(`[rogue-arena-mcp] Not logged in (${CREDENTIALS.describe()}).`);
+    console.error(`[rogue-arena-mcp] Run: ${LOGIN_HINT}`);
     currentAuthState = {
       status: "no_tokens",
-      error: "Not logged in. The user must run `rogue-mcp login` in their terminal to authenticate.",
+      error: `Not logged in. The user must run \`${LOGIN_HINT}\` in their terminal to authenticate.`,
     };
     return null;
   }
 
-  console.error(`[rogue-arena-mcp] Auth: keycloak`);
+  console.error(`[rogue-arena-mcp] Auth: keycloak (${CREDENTIALS.describe()})`);
   console.error(`[rogue-arena-mcp] User: ${tokens.username} (${tokens.userId})`);
-  return new KeycloakAuthProvider(HUB_URL, CLIENT_ID, tokens);
+  return new KeycloakAuthProvider(HUB_URL, CLIENT_ID, tokens, CREDENTIALS, LOGIN_HINT);
 }
 
 // ── Auth status tool (always registered) ────────────────────────────
@@ -155,26 +174,43 @@ const AUTH_STATUS_TOOL = {
 
 function buildAuthStatusResponse(): { content: Array<{ type: "text"; text: string }>; isError?: boolean } {
   switch (currentAuthState.status) {
-    case "ok":
+    case "ok": {
+      const unavailable = unavailableToolFamilies();
       return {
         content: [{
           type: "text",
           text: JSON.stringify({
             authStatus: "ok",
+            hub: HUB_URL,
+            profile: PROFILE.name,
             username: currentAuthState.username,
             userId: currentAuthState.userId,
-            message: "Authentication is healthy. All Rogue Arena tools should be available.",
+            message: unavailable.length === 0
+              ? "Authentication is healthy. All Rogue Arena tools should be available."
+              : "Authentication is healthy, but some tool families failed discovery when this server started and cannot be called.",
+            ...(unavailable.length === 0 ? {} : {
+              action: "Reconnect this MCP server to retry discovery once the hub answers.",
+              unavailableToolFamilies: unavailable.map((family) => ({
+                family: family.label,
+                category: family.category,
+                discoveryStatus: family.status ?? "no response",
+                detail: family.reason,
+              })),
+            }),
           }, null, 2),
         }],
       };
+    }
     case "no_tokens":
       return {
         content: [{
           type: "text",
           text: JSON.stringify({
             authStatus: "not_logged_in",
+            hub: HUB_URL,
+            profile: PROFILE.name,
             message: "Not logged in. No Rogue Arena tools are available until the user authenticates.",
-            action: "Tell the user to run: rogue-mcp login",
+            action: `Tell the user to run: ${LOGIN_HINT}`,
             detail: currentAuthState.error,
           }, null, 2),
         }],
@@ -186,10 +222,12 @@ function buildAuthStatusResponse(): { content: Array<{ type: "text"; text: strin
           type: "text",
           text: JSON.stringify({
             authStatus: "expired",
+            hub: HUB_URL,
+            profile: PROFILE.name,
             username: currentAuthState.username,
             userId: currentAuthState.userId,
             message: "Authentication session has expired. No Rogue Arena tools are available until the user re-authenticates.",
-            action: "Tell the user to run: rogue-mcp login",
+            action: `Tell the user to run: ${LOGIN_HINT}`,
             detail: currentAuthState.error,
           }, null, 2),
         }],
@@ -201,9 +239,11 @@ function buildAuthStatusResponse(): { content: Array<{ type: "text"; text: strin
           type: "text",
           text: JSON.stringify({
             authStatus: "error",
+            hub: HUB_URL,
+            profile: PROFILE.name,
             ...(currentAuthState.username ? { username: currentAuthState.username } : {}),
             message: "Authentication failed. No Rogue Arena tools are available.",
-            action: "Tell the user to check their connection and run: rogue-mcp login",
+            action: `Tell the user to check their connection and run: ${LOGIN_HINT}`,
             detail: currentAuthState.error,
           }, null, 2),
         }],
@@ -212,32 +252,61 @@ function buildAuthStatusResponse(): { content: Array<{ type: "text"; text: strin
   }
 }
 
-async function discoverAllTools(hub: HubClient): Promise<ToolSchema[]> {
+/** Tool families served by their own schema route. One failing does not stop the server. */
+interface OptionalToolFamily {
+  readonly category: string;
+  readonly label: string;
+  readonly namePrefix: string;
+  readonly discover: (hub: HubClient) => Promise<ToolSchema[]>;
+}
+
+const OPTIONAL_TOOL_FAMILIES: readonly OptionalToolFamily[] = [
+  { category: "PLUGIN_DEV", label: "plugin-dev", namePrefix: "plugin_dev_", discover: (hub) => hub.discoverPluginDevTools() },
+  { category: "ACTIVE_DEPLOYMENT", label: "active-deployment", namePrefix: "deployment_", discover: (hub) => hub.discoverActiveDeploymentTools() },
+];
+
+async function discoverAllTools(hub: HubClient): Promise<{ tools: ToolSchema[]; unavailableFamilies: UnavailableToolFamily[] }> {
   let tools = await hub.discoverTools();
   console.error(`[rogue-arena-mcp] Discovered ${tools.length} tools from hub`);
+  const unavailableFamilies: UnavailableToolFamily[] = [];
 
-  try {
-    const pluginDevTools = await hub.discoverPluginDevTools();
-    console.error(`[rogue-arena-mcp] Discovered ${pluginDevTools.length} plugin dev tools`);
-    tools = [...tools, ...pluginDevTools];
-  } catch (err) {
-    console.error(`[rogue-arena-mcp] Plugin dev tool discovery failed (non-fatal): ${err instanceof Error ? err.message : err}`);
+  for (const family of OPTIONAL_TOOL_FAMILIES) {
+    try {
+      const familyTools = await family.discover(hub);
+      console.error(`[rogue-arena-mcp] Discovered ${familyTools.length} ${family.label} tools`);
+      tools = [...tools, ...familyTools];
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error(`[rogue-arena-mcp] ${family.label} tool discovery failed (non-fatal): ${reason}`);
+      unavailableFamilies.push({
+        category: family.category,
+        label: family.label,
+        namePrefix: family.namePrefix,
+        ...(err instanceof HubRequestError ? { status: err.status } : {}),
+        reason,
+      });
+    }
   }
 
-  try {
-    const activeDeploymentTools = await hub.discoverActiveDeploymentTools();
-    console.error(`[rogue-arena-mcp] Discovered ${activeDeploymentTools.length} active deployment tools`);
-    tools = [...tools, ...activeDeploymentTools];
-  } catch (err) {
-    console.error(`[rogue-arena-mcp] Active deployment tool discovery failed (non-fatal): ${err instanceof Error ? err.message : err}`);
-  }
+  return { tools, unavailableFamilies };
+}
 
-  return tools;
+function unknownToolResponse(name: string): { content: Array<{ type: "text"; text: string }>; isError: true } {
+  const family = unavailableFamilyForTool(name);
+  return {
+    content: [{
+      type: "text",
+      text: family
+        ? describeUnavailableFamily(family, name)
+        : `Unknown tool: ${name}. Use discover_tools to find available tools.`,
+    }],
+    isError: true,
+  };
 }
 
 // ── Bootstrap ────────────────────────────────────────────────────────
 async function main() {
-  console.error(`[rogue-arena-mcp] Hub: ${HUB_URL}`);
+  console.error(`[rogue-arena-mcp] Hub: ${HUB_URL} · Profile: ${PROFILE.name}`);
 
   const auth = await createAuthProvider();
 
@@ -250,16 +319,16 @@ async function main() {
   const userInfo = auth.getUserInfo();
 
   // Session
-  const session = new Session(userInfo.userId, userInfo.username);
+  const session = new Session(userInfo.userId, userInfo.username, PROFILE.sessionFilePath);
 
   // Hub client
   const hub = new HubClient(HUB_URL, auth);
 
   // Discover tools from hub (with one retry on transient failure)
   console.error("[rogue-arena-mcp] Discovering tools from hub...");
-  let hubTools: ToolSchema[];
+  let discovered: { tools: ToolSchema[]; unavailableFamilies: UnavailableToolFamily[] };
   try {
-    hubTools = await discoverAllTools(hub);
+    discovered = await discoverAllTools(hub);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
 
@@ -276,12 +345,13 @@ async function main() {
     await new Promise((r) => setTimeout(r, 5000));
 
     try {
-      hubTools = await discoverAllTools(hub);
+      discovered = await discoverAllTools(hub);
     } catch (retryErr) {
       const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
       console.error(`[rogue-arena-mcp] Retry also failed: ${retryMsg}`);
 
-      if (retryMsg.includes("expired") || retryMsg.includes("invalid_grant") || retryMsg.includes("401")) {
+      const unauthorized = retryErr instanceof HubRequestError && retryErr.status === 401;
+      if (unauthorized || retryMsg.includes("expired") || retryMsg.includes("invalid_grant")) {
         currentAuthState = { status: "expired", error: retryMsg, username: userInfo.username, userId: userInfo.userId };
       } else {
         currentAuthState = { status: "error", error: retryMsg, username: userInfo.username, userId: userInfo.userId };
@@ -291,6 +361,9 @@ async function main() {
       return startDegradedServer();
     }
   }
+
+  const hubTools = discovered.tools;
+  setUnavailableToolFamilies(discovered.unavailableFamilies);
 
   // Auth is healthy if we got here
   currentAuthState = {
@@ -385,12 +458,12 @@ async function main() {
     const callArgs = (args ?? {}) as Record<string, unknown>;
 
     if (name === "rogue_auth_status") {
-      return buildAuthStatusResponse();
+      return authStatusArgsRefusal(callArgs) ?? buildAuthStatusResponse();
     }
 
     if (isMetaTool(name)) {
       try {
-        const { toolsPromoted, ...mcpResult } = await handleMetaTool(name, callArgs, session, hub);
+        const { toolsPromoted, ...mcpResult } = await handleMetaTool(name, callArgs, session, hub, IDENTITY);
 
         // If discover_tools promoted new tools, notify the client to re-fetch ListTools
         if (toolsPromoted) {
@@ -434,15 +507,7 @@ async function main() {
 
     // Hub tool — callable regardless of visibility
     if (!allCallableTools.has(name)) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Unknown tool: ${name}. Use discover_tools to find available tools.`,
-          },
-        ],
-        isError: true,
-      };
+      return unknownToolResponse(name);
     }
 
     // Plugin dev tools — no canvas required
@@ -583,9 +648,15 @@ async function startDegradedServer(): Promise<void> {
 
   // Track last-seen refresh token to detect changes
   let lastSeenRefreshToken: string | null = null;
-  const initialTokens = await loadTokens();
-  if (initialTokens) {
-    lastSeenRefreshToken = initialTokens.refreshToken;
+  try {
+    const initialTokens = await CREDENTIALS.load();
+    if (initialTokens) {
+      lastSeenRefreshToken = initialTokens.refreshToken;
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[rogue-arena-mcp] Credential store unreadable (${CREDENTIALS.describe()}): ${message}`);
+    lastSeenRefreshToken = null;
   }
 
   // State for recovered session (used by CallTool handler after recovery)
@@ -622,17 +693,25 @@ async function startDegradedServer(): Promise<void> {
 
   // Recovery function — shared between manual trigger and auto-poll
   const attemptRecovery = async (): Promise<boolean> => {
-    const tokens = await loadTokens();
+    let tokens: StoredTokens | null;
+    try {
+      tokens = await CREDENTIALS.load();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[rogue-arena-mcp] Credential store unreadable (${CREDENTIALS.describe()}): ${message}`);
+      return false;
+    }
     if (!tokens) return false;
     if (tokens.refreshToken === lastSeenRefreshToken) return false;
 
-    console.error("[rogue-arena-mcp] New tokens detected in keychain — attempting recovery...");
+    console.error("[rogue-arena-mcp] New tokens detected in " + CREDENTIALS.describe() + " — attempting recovery...");
     lastSeenRefreshToken = tokens.refreshToken;
 
     try {
-      const auth = new KeycloakAuthProvider(HUB_URL, CLIENT_ID, tokens);
+      const auth = new KeycloakAuthProvider(HUB_URL, CLIENT_ID, tokens, CREDENTIALS, LOGIN_HINT);
       const hub = new HubClient(HUB_URL, auth);
-      const hubTools = await discoverAllTools(hub);
+      const { tools: hubTools, unavailableFamilies } = await discoverAllTools(hub);
+      setUnavailableToolFamilies(unavailableFamilies);
 
       // Success — rebuild tool list
       const userInfo = auth.getUserInfo();
@@ -651,7 +730,6 @@ async function startDegradedServer(): Promise<void> {
       }));
 
       // Rebuild listed tools in-place
-      clearPromotedTools();
       listedTools.length = 0;
       listedTools.push(AUTH_STATUS_TOOL, ...metaToolList, ...localToolList, ...alwaysTools.map(toMcpTool));
       setToolPromotion(listedTools, toMcpTool);
@@ -659,7 +737,7 @@ async function startDegradedServer(): Promise<void> {
       // Set recovered state for CallTool handler
       recoveredAuth = auth;
       recoveredHub = hub;
-      recoveredSession = new Session(userInfo.userId, userInfo.username);
+      recoveredSession = new Session(userInfo.userId, userInfo.username, PROFILE.sessionFilePath);
       recoveredCallableTools = new Map(hubTools.map((t) => [t.name, t]));
 
       // Notify client
@@ -699,6 +777,8 @@ async function startDegradedServer(): Promise<void> {
 
     // Auth status — always available, doubles as manual recovery trigger (Layer 5A)
     if (name === "rogue_auth_status") {
+      const refusal = authStatusArgsRefusal(callArgs);
+      if (refusal) return refusal;
       if (currentAuthState.status !== "ok") {
         const recovered = await attemptRecovery();
         if (recovered) {
@@ -721,7 +801,7 @@ async function startDegradedServer(): Promise<void> {
     if (recoveredAuth && recoveredHub && recoveredSession) {
       if (isMetaTool(name)) {
         try {
-          const { toolsPromoted, ...mcpResult } = await handleMetaTool(name, callArgs, recoveredSession, recoveredHub);
+          const { toolsPromoted, ...mcpResult } = await handleMetaTool(name, callArgs, recoveredSession, recoveredHub, IDENTITY);
           if (toolsPromoted) {
             void server.notification({ method: "notifications/tools/list_changed" });
           }
@@ -764,6 +844,8 @@ async function startDegradedServer(): Promise<void> {
           return { content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
         }
       }
+
+      return unknownToolResponse(name);
     }
 
     return {

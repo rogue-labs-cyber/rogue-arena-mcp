@@ -16,6 +16,7 @@ This step runs the full build without further prompting, apart from the checkpoi
 4. **Resume detection** — Check diary (`diary_read`) + implementation.yml on disk for partial builds
    - If partial build found → present: "Found partial build — Phase A completed. Resume from Phase B?"
    - Resume from next incomplete phase
+5. **Pre-build diary entry** — The user just approved this build, so before the first write call `diary_write` once, for the next Oracle chat or MCP session on this canvas: `USER_INTENT`, or `USER_DECISION` when the user's choices shaped the design. Say what is being built and why, the key design decisions and constraints (domains, accounts, each machine's purpose), and what remains (the course, final validate, Apply Plan, the Architect build). At most 800 characters. Do not claim validation or apply succeeded. Skip it when the diary already records this design, as on a resume.
 
 ## Context Window Management
 
@@ -132,7 +133,7 @@ Place new plugins AFTER their prerequisites. The B.6 File-Copy-after-Auto-Login 
 
 ### B.7: Checkpoint
 - Run `architect_canvas_get_overview` to confirm machine and VLAN counts match the plan and to spot empty-plugin entities
-- Write diary entry: `diary_write` with type SCENARIO_BUILT, content summarizing machine counts, VLAN counts, deviations (including any orchestration plugins auto-added in B.6)
+- Write diary entry: `diary_write` with type `MAJOR_MUTATION`, content summarizing machine counts, VLAN counts, deviations (including any orchestration plugins auto-added in B.6) and what remains
 - Present to user: "Scenario built. X machines across Y VLANs. Deviations from plan: [list]. Changes are staged as drafts."
 
 ## End of pipeline — final validate
@@ -168,14 +169,17 @@ Check before creating every resource. If a VLAN with the same name or a machine 
 
 | Phase Boundary | Diary Entry Type |
 |----------------|-----------------|
-| After Phase A | `EXPANSION_COMPLETE` — implementation.yml written, flags resolved |
-| After Phase B | `SCENARIO_BUILT` — machine counts, VLAN counts, deviations, completeness state |
+| Build approved (startup step 5) | `USER_INTENT` or `USER_DECISION` — what is built and why, key decisions and constraints, what remains |
+| After Phase A | none — implementation.yml on disk marks it |
+| After Phase B | `MAJOR_MUTATION` — machine counts, VLAN counts, deviations, what remains |
+
+These are the only two entries this flow writes; never log routine progress.
 
 ## Resume Protocol
 
 If partial build detected (via diary entries + implementation.yml on disk):
 
-1. Read last diary entry to determine which phase completed
+1. Read the latest diary entries: the build entry holds the approved design; a `MAJOR_MUTATION` from this flow means Phase B finished
 2. Read implementation.yml for the expansion state
 3. Read canvas state via MCP to verify what actually exists
 4. Present to user: "Found a partial build — Phase A completed, Phase B not started. Resume from scenario build?"

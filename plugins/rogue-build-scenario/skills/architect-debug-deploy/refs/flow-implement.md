@@ -11,12 +11,12 @@ This step runs the full build without further prompting, apart from the checkpoi
 1. **Locate YML files** — scenario directory already in conversation context
 2. **Validate scenario.yml** — Check `schema_version: 1`, verify required fields present
 3. **Canvas ID validation** — Call `architect_canvas_get_overview` with the canvas ID from YML
-   - Canvas not found → fail fast: "Canvas ID not found. Check the ID and try again."
+   - Canvas not found → fail fast: find it again with `architect_canvas_list`, bind it with `rogue_set_canvas`, and confirm the canvas name with the user before writing anything.
    - Canvas has unexpected state → checkpoint: "This canvas already has X machines. Continue adding, or fresh canvas?"
 4. **Resume detection** — Check diary (`diary_read`) + implementation.yml on disk for partial builds
    - If partial build found → present: "Found partial build — Phase A completed. Resume from Phase B?"
    - Resume from next incomplete phase
-5. **Pre-build diary entry** — The user just approved this build, so before the first write call `diary_write` once, for the next Oracle chat or MCP session on this canvas: `USER_INTENT`, or `USER_DECISION` when the user's choices shaped the design. Say what is being built and why, the key design decisions and constraints (domains, accounts, each machine's purpose), and what remains (the course, final validate, Apply Plan, the Architect build). At most 800 characters. Do not claim validation or apply succeeded. Skip it when the diary already records this design, as on a resume.
+5. **Pre-build diary entry** — The user just approved this build, so before the first write call `diary_write` once, for the next Oracle chat or MCP session on this canvas: `USER_INTENT`, or `USER_DECISION` when the user's choices shaped the design. Say what is being built and why, the key design decisions and constraints (domains, accounts, each machine's purpose), and what remains (the course, final validate, applying the plan, the Architect build). At most 800 characters. Do not claim validation or apply succeeded. Skip it when the diary already records this design, as on a resume.
 
 ## Context Window Management
 
@@ -142,7 +142,7 @@ After Phase B, this flow is done. Do **not** run the audit inline. Do **not** ca
 
 Tell the user:
 
-> "Build staged as drafts. Run `/architect-final-validate` for the pre-deploy audit (plugin params, run order, completeness, realism grade) before Apply Plan."
+> "Build staged as drafts. Run `/architect-final-validate` for the pre-deploy audit (plugin params, run order, completeness, realism grade). Once it passes, it applies the plan for you."
 
 That skill is the required last step. Stop here.
 
@@ -186,6 +186,6 @@ If partial build detected (via diary entries + implementation.yml on disk):
 5. Resume from the next incomplete phase, skipping completed work
 
 ## Apply Plan Reminders
-At every checkpoint, remind: "These changes are staged as drafts."
+At every checkpoint, remind: "These changes are staged as drafts." Do not apply the plan from this flow; `/architect-final-validate` applies it once its verdict is YES (see `refs/freeform-context.md` section 3).
 
-**Run precheck before sending the user to Apply Plan or final-validate.** First call `architect_canvas_precheck` (read-only — 8 deterministic checks against the projected canvas: missing required params, malformed CIDR, duplicate names, empty-plugin machines, unwired dep edges, unreachable cross-machine deps). If it returns any `error`-severity findings, fix them and re-run before handing off. Report the precheck result when you tell the user to run `/architect-final-validate`.
+**Run precheck before handing off to final-validate.** First call `architect_canvas_precheck` (read-only — 8 deterministic checks against the projected canvas: missing required params, malformed CIDR, duplicate names, empty-plugin machines, unwired dep edges, unreachable cross-machine deps). If it returns any `error`-severity findings, fix them and re-run before handing off. Report the precheck result when you tell the user to run `/architect-final-validate`.

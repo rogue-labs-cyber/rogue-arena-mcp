@@ -18,10 +18,10 @@ Do not use TodoWrite during build execution. The phase's gate sequence is the pr
 These are the load-bearing moves for this phase. Every one must happen on every canvas session.
 
 1. **Enrich vague prompts.** "tech company" is not enough detail. Infer regulatory landscape, propose a narrative hook, and confirm with the user before proceeding.
-2. **Run the calibration protocol.** Every scenario is unique. Reusing a mental template means the implementor is not listening to THIS user.
+2. **Run the calibration protocol.** Every scenario is unique. Reusing a mental template means you are not listening to THIS user.
 3. **Verify technologies via `architect_plugin_catalog_search`.** Assumptions about plugin availability cause cascading failures in every downstream phase.
 4. **Read reference files before validating Haiku output.** Refs contain size limits, hostname rules, and domain constraints that change.
-5. **Inspect Haiku output before storing.** Haiku can hallucinate naming patterns, miss content policy, or invert prominence distributions. The implementor is the gate.
+5. **Inspect Haiku output before storing.** Haiku can hallucinate naming patterns, miss content policy, or invert prominence distributions. You are the gate.
 6. **Produce the brief by round 3.** The hard limit exists because users disengage. Do not extend past 3 rounds of questions.
 
 ---
@@ -85,7 +85,7 @@ Checkpoint — present to user: the design brief summary (2-3 sentences) and ask
 
 ### Plugin Reality Check
 
-If the user names specific technologies or attack techniques, the implementor must verify via `architect_plugin_catalog_search` before including them in the brief. If no matching plugin exists, inform the user honestly, suggest available alternatives, and let them decide. Note substitutions in the brief.
+If the user names specific technologies or attack techniques, verify via `architect_plugin_catalog_search` before including them in the brief. If no matching plugin exists, inform the user honestly, suggest available alternatives, and let them decide. Note substitutions in the brief.
 
 This check is lightweight — one search call. Skip it for generic requests ("some workstations", "a file server"). Do it for specific software, vulnerability techniques, or niche technologies.
 
@@ -126,11 +126,11 @@ Once the user confirms the brief, transition directly into generation:
 
 **GATE 4: Inspect before storing.** After Haiku returns JSON, spot-check before calling `architect_canvas_set_context`: leadership includes CEO + security leader, no content policy violations. Re-dispatch with corrections if any check fails.
 
-The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
+Verify state via `architect_canvas_get_overview` after this phase completes.
 
 ### Haiku Subagent Dispatch
 
-The implementor (orchestrator) handles workflow: reading state, deciding what to build, calling MCP tools. Subagents handle bpData generation: the implementor gives them ref file paths + context, they return JSON. The implementor assembles their output into the final bpData payload and calls `architect_canvas_set_context` exactly ONCE with the complete payload.
+You (the orchestrator) handle the workflow: reading state, deciding what to build, calling MCP tools. Subagents handle bpData generation: you give them ref file paths + context, they return JSON. You assemble their output into the final bpData payload and calls `architect_canvas_set_context` exactly ONCE with the complete payload.
 
 See [shared-rules.md -- Haiku Subagent Dispatch Pattern](../shared-rules.md#haiku-subagent-dispatch-pattern) for the canonical template shape.
 
@@ -138,7 +138,7 @@ See [shared-rules.md -- Haiku Subagent Dispatch Pattern](../shared-rules.md#haik
 
 1. **Subagent — context sections (~15KB).** Dispatch a Haiku subagent to generate `companyProfile`, `leadership`, and `technicalInfra`. This fits within the Read tool's token limit and returns inline. Per-phase context block: include `<canvas-context>[architect_canvas_get_overview result]</canvas-context>` and `<user-request>[industry, size, themes]</user-request>`.
 
-**Storage:** After the subagent completes, the implementor assembles bpData from the subagent output and calls `architect_canvas_set_context` ONCE with the complete payload. Do NOT call set_context twice — it uses REPLACE semantics and the second call would destroy the first call's data.
+**Storage:** After the subagent completes, assemble bpData from the subagent output and call `architect_canvas_set_context` ONCE with the complete payload. Do NOT call set_context twice — it uses REPLACE semantics and the second call would destroy the first call's data.
 
 ### Validation Checklist
 
@@ -190,6 +190,6 @@ Canvas produces the *decision* of which naming conventions the company uses (pic
 - Haiku generates bpData; the canvas phase passes it through to the `bpData` field on `architect_canvas_set_context`.
 - The `prompt` field is optional metadata for the audit trail.
 - `architect_canvas_set_context` auto-stores `company_context` and `user_profiles` for downstream consumers — no extra storage calls needed.
-- The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
+- Verify state via `architect_canvas_get_overview` after this phase completes.
 - Every company uses modern enterprise IT infrastructure (Active Directory, contemporary databases, standard networking) regardless of fictional setting. Department names and themes can be fictional; IT infrastructure stays modern.
 - If a machine or VM limit is specified, reflect that limit exactly in `totalMachines` and capture the constraint verbatim.

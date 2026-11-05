@@ -184,7 +184,7 @@ State calibration in the first response:
 | Collapsing phases | Every phase gets announced, presented, confirmed separately |
 | Accepting "you decide" passively | Make opinionated creative choices |
 | Generic company identities | Enrich with narrative hooks |
-| Looking at plugin params | Params are the implementor's job |
+| Looking at plugin params | Params belong to the build step |
 
 ---
 

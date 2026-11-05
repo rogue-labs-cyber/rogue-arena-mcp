@@ -8,12 +8,12 @@ disable-model-invocation: true
 
 One skill. Sequential markdown. No `Skill()` calls.
 
-Build a security lab scenario by **reading these files one after another**. Load the next file only after the current gate passes. Never invoke `architect-validator` or `architect-implementor` — those are not skills.
+Build a security lab scenario by **reading these files one after another**. Load the next file only after the current gate passes.
 
 ```
 1. refs/flow-shape.md      Q1–Q4 → topology visual → scenario_part1.yml
 2. refs/flow-cast.md       characters → roster visual → scenario_part2.yml
-3. refs/flow-build.md      canvas ID → plugins → files gate → scenario_part3.yml
+3. refs/flow-build.md      canvas → plugins → files gate → scenario_part3.yml
 4. refs/flow-validate.md   canvas↔YML + cross-phase checks (read-only)
 5. HARD GATE               "This mutates the live canvas. Build it?"
 6. refs/flow-implement.md  expand + create domains/VLANs/machines (only after yes)
@@ -65,7 +65,7 @@ Call TodoWrite FIRST (before any text output). Then present the roadmap and imme
 3. **The Build** — plugin mapping, defaults
 4. **Validate** — check the YML
 5. **Implement** — stage the canvas (I'll ask before writing)
-6. **Final validate** — you run `/architect-final-validate` before Apply Plan
+6. **Final validate** — you run `/architect-final-validate`; on a pass it applies the plan
 
 I'll check in with you at the end of each phase."
 
@@ -93,7 +93,7 @@ On pass, **stop** and ask:
 
 Do not run the audit inline. Do not call `Skill()`. Tell the user:
 
-> "Build staged as drafts. Run `/architect-final-validate` before Apply Plan."
+> "Build staged as drafts. Run `/architect-final-validate`; once it passes, it applies the plan."
 
 That is the end of this skill.
 
@@ -106,13 +106,13 @@ That is the end of this skill.
 ## Modes
 
 **New** — default, full flow above.
-**Update** — ask for canvas ID, read state via MCP and the canvas diary (`diary_read`, which holds the design, decisions and remaining work earlier Oracle chats and MCP sessions recorded), pre-populate, ask what to change. Merge semantics per `refs/scenario-schema.md`. Then the same validate → confirm → implement → final-validate sequence.
+**Update** — find the canvas with `architect_canvas_list` (ask which only when several fit) and bind it with `rogue_set_canvas`, read state via MCP and the canvas diary (`diary_read`, which holds the design, decisions and remaining work earlier Oracle chats and MCP sessions recorded), pre-populate, ask what to change. Merge semantics per `refs/scenario-schema.md`. Then the same validate → confirm → implement → final-validate sequence.
 
 ## Reference (one level deep — load from this file only)
 
 - `refs/flow-shape.md` — Phase 1 questions + Gate 1
 - `refs/flow-cast.md` — Phase 2 characters + Gate 2
-- `refs/flow-build.md` — canvas ID, plugins, files gate + Gate 3
+- `refs/flow-build.md` — canvas, plugins, files gate + Gate 3
 - `refs/flow-validate.md` — YML / canvas checks
 - `refs/flow-implement.md` — canvas build
 - `refs/brainstorm-reference.md` — visual formats, defaults, anti-patterns

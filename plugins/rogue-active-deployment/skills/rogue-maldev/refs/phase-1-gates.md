@@ -11,7 +11,7 @@ Complete before any other action. No exceptions.
 | 3. List VMs | `deployment_list_vms` | Full inventory: hostnames, IPs, OS, status, snapshots |
 | 4. Locked check | Inspect status | If locked, stop — write access required (exec, snapshots, uploads) |
 | 5. Workspace setup | Check CLAUDE.md for `rogue_workspace` | Create technique folder structure (only if writing files) |
-| 6. Diary check | `deployment_diary_read` | Resume prior session if relevant |
+| 6. Resume check | Workspace `runs/` (`refs/workspace-layout.md`) | Resume prior session if relevant |
 
 ## Workspace Resolution
 
@@ -22,7 +22,7 @@ Follows the unified Rogue Labs convention:
 3. Create `{ROGUE_WORKSPACE}/deployments/{deployment-name}/techniques/` if it doesn't exist.
 4. Write `rogue_workspace: <path>` to CLAUDE.md if it wasn't there.
 
-Workspace is only required for modes that write files (B, C, D in the entry table). If jumping straight to Phase 7 with a ready tool, skip workspace setup unless the user wants a diary trail.
+Workspace is only required for modes that write files (B, C, D in the entry table). If jumping straight to Phase 7 with a ready tool, skip workspace setup unless the user wants a run record.
 
 ## Environment Orientation
 

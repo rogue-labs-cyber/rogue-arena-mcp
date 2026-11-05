@@ -25,7 +25,7 @@ All file paths use Windows conventions (`C:\Users\{username}\...`).
 
 ## File Content Richness
 
-When generating actual file content (not just manifest entries), the implementor must follow the minimum depth table in [shared-rules.md -- File Content Richness](../shared-rules.md#file-content-richness).
+When generating actual file content (not just manifest entries), follow the minimum depth table in [shared-rules.md -- File Content Richness](../shared-rules.md#file-content-richness).
 
 Cross-reference rules: every business file names at least 2 real employees. Scripts reference only services actually installed on the machine. Names and emails stay consistent across all files in a batch.
 
@@ -39,7 +39,7 @@ For 3+ machines, spawn haiku subagents in parallel (one per machine) — each ma
 
 **Per-machine context block:** machineNodeId, hostname, machine role, assigned user profile (bio, hobbies, filingHabits, workStyle, department), target file count for the machine type, installed services/plugins from `architect_files_get_seeding_context`.
 
-**Explicit task boundaries:** The implementor must not touch files on other machines. The implementor must not reference services that are not installed on the target machine.
+**Explicit task boundaries:** Do not touch files on other machines. Do not reference services that are not installed on the target machine.
 
 ## Checklist
 
@@ -54,6 +54,6 @@ For 3+ machines, spawn haiku subagents in parallel (one per machine) — each ma
 
 ## Constraints
 
-- The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
-- For 5+ machines, the implementor must confirm scope before generating — see [shared-rules.md -- Large Generation Confirmation Gate](../shared-rules.md#large-generation-confirmation-gate).
+- Verify state via `architect_canvas_get_overview` after this phase completes.
+- For 5+ machines, confirm scope before generating — see [shared-rules.md -- Large Generation Confirmation Gate](../shared-rules.md#large-generation-confirmation-gate).
 - Do not seed credential dumps, SSH keys, or other `isVulnerabilityFile: true` breadcrumbs here.

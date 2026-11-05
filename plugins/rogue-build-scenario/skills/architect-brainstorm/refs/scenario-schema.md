@@ -126,7 +126,7 @@ Characters only. One per workstation. Grouped by domain.
 
 Key rules:
 - One character per workstation — these are the primary signed-in users students encounter
-- Implementor generates additional users (abandoned profiles, service accounts) to hit target counts
+- The build step generates additional users (abandoned profiles, service accounts) to hit target counts
 - DCs and servers don't get primary characters
 - `machine` is the hostname label (e.g., "SUBLVL-WS-01")
 - `security_habits` is the fun part — password habits, misconfigs, DA status
@@ -140,7 +140,7 @@ meta:
   canvas_id: null
   scenario_ref: "scenario_part1.yml"
 
-# One character per workstation. Implementor adds more during build
+# One character per workstation. The build step adds more
 # to hit target user count (abandoned profiles, service accounts, etc.)
 
 characters:
@@ -230,7 +230,7 @@ Plugin mapping (non-default software only), domain relationships, substitutions,
 Key rules:
 - Only machines with non-default software get plugin entries — workstations, DCs, file servers are standard
 - Each plugin entry has `label` (hostname hint), `plugin` (name), `plugin_id` (validated via MCP)
-- Domain relationships are narrative context for the implementor (acquisition dynamics, org politics)
+- Domain relationships are narrative context for the build step (acquisition dynamics, org politics)
 - Defaults are auto-calculated from company size + security posture — user can override any
 
 ```yaml
@@ -273,7 +273,7 @@ plugin_mapping:
         plugin: "internal-wiki"
         plugin_id: "plg-wiki01"
 
-# Business context between domains — narrative flavor for the implementor.
+# Business context between domains — narrative flavor for the build step.
 relationships:
   - from: "cygnus.sienar.local"
     to: "sienar.local"

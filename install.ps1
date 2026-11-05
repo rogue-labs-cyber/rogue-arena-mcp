@@ -207,6 +207,12 @@ if ($HaveCodex) {
     $PluginsDir = Join-Path $InstallDir "plugins"
     if (Test-Path $PluginsDir) {
         New-Item -ItemType Directory -Force -Path $CodexSkills | Out-Null
+        # Skills an earlier release installed that this one no longer ships
+        # (rogue-plugin-builder replaced both).
+        foreach ($retired in @('rogue-plugin-brainstorm', 'rogue-plugin-develop')) {
+            $retiredPath = Join-Path $CodexSkills $retired
+            if (Test-Path $retiredPath) { Remove-Item -Recurse -Force $retiredPath }
+        }
         foreach ($pluginDir in Get-ChildItem -Path $PluginsDir -Directory) {
             $skillsRoot = Join-Path $pluginDir.FullName "skills"
             if (Test-Path $skillsRoot) {

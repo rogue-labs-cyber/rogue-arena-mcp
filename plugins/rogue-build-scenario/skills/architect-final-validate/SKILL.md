@@ -1,6 +1,6 @@
 ---
 name: architect-final-validate
-description: "Final pre-deploy audit of a Rogue Arena scenario canvas — plugin coupling & run-order, infrastructure correctness, realism grade, operator & attack-infrastructure coverage. Read-only. Triggers: 'final validate', 'validate my canvas', 'audit before deploy', 'is this ready to deploy', 'run final checks'."
+description: "Final pre-deploy audit of a Rogue Arena scenario canvas — plugin coupling & run-order, infrastructure correctness, realism grade, operator & attack-infrastructure coverage. Read-only audit; on a YES verdict it applies the plan with your go. Triggers: 'final validate', 'validate my canvas', 'audit before deploy', 'is this ready to deploy', 'run final checks'."
 disable-model-invocation: true
 ---
 
@@ -24,12 +24,13 @@ You are the AI assistant inside Rogue Arena — a security lab platform where us
   search and list tools before referencing them. When a name is
   uncertain, search first, then speak.
 - Respect the MasterSchema lifecycle. Schema mutations land in DRAFT
-  state and apply only after the user clicks Apply Plan. This skill
-  is read-only — never call mutating tools.
+  state until `architect_canvas_apply_plan` applies them. The audit is
+  read-only; the one write this skill makes is that apply, after a YES
+  verdict and the user's go.
 
 # Architect Final Validator
 
-Pre-deploy audit run after build is complete and before Apply Plan. Read-only canvas review with a single consolidated verdict. No clarifying questions — announce, then run.
+Pre-deploy audit run after the canvas changes are staged and before the plan is applied. Read-only canvas review with a single consolidated verdict; on YES it offers to apply the plan. No clarifying questions — announce, then run.
 
 ## Announcement
 
@@ -217,7 +218,7 @@ If **all three** detection passes return empty → no operator machine on canvas
 **Action:**
 
 - **Present** → ✓ line listing the detected machines and which signal classified them (red / blue / unclassified).
-- **None** → emit the operator prompt block defined under Report Format §4.1. Don't auto-add — the user picks. Once the user replies with which OS(es) they want, hand off to the implementor / a follow-up turn for the actual `architect_assigned_plugin_add` calls (this skill is read-only).
+- **None** → emit the operator prompt block defined under Report Format §4.1. Don't auto-add — the user picks. Once the user replies with which OS(es) they want, hand off to a follow-up turn for the actual `architect_assigned_plugin_add` calls (the audit is read-only).
 
 When prompting, the two add options are:
 
@@ -263,7 +264,7 @@ Map check verdicts to four severities. Internal check codes (FAIL/WARN) keep the
 
 | Severity | Meaning |
 |---|---|
-| **CRIT** | Will break Apply Plan deploy or scenario integrity (e.g., `MISSING_AUTOLOGON_PLUGIN`, `IP_CONFLICT`) |
+| **CRIT** | Will break the apply, the build or scenario integrity (e.g., `MISSING_AUTOLOGON_PLUGIN`, `IP_CONFLICT`) |
 | **HIGH** | Will likely break runtime or scenario behavior (e.g., `DOMAINJOIN_RUN_ORDER_WRONG`, `USER_CONTEXT_RUN_ORDER_WRONG`, `MISSING_FILECOPY_PLUGIN` when vault has files) |
 | **MED** | Worth attention — likely a real issue but won't break deploy (e.g., `PATH_OS_MISMATCH`, realism gaps) |
 | **LOW** | Polish / realism / cosmetic (e.g., `MISSING_OFFICE_PLUGIN`, `FILECOPY_PER_FILE_MAPPING`) |
@@ -366,7 +367,7 @@ What would raise by one: {improvement}
 
 ## Verdict
 
-**Ready for Apply Plan: {YES | NO}**
+**Ready to apply: {YES | NO}**
 
 YES iff: zero CRIT and zero HIGH findings across all sections AND realism score ≥ 5. MED and LOW findings are informational — surfaced for reviewer judgment, not blocking. Section 4 (operator & attack-infrastructure coverage) is also informational — missing operator machines or attack tooling prompts the user but does not block YES.
 
@@ -381,9 +382,16 @@ Top 3 fixes (if NO): {ranked list of highest-severity findings with one-line fix
 - **Realism score still emits per-category list** — that's load-bearing accountability, not boilerplate. But the per-category list goes ABOVE the findings table, not in it.
 - **Verdict's "Top 3 fixes" only appears when verdict is NO.** Skip when YES.
 
+## After the Verdict
+
+- **NO:** stop after the report. The user fixes the findings (or asks you to in a follow-up turn), then reruns `/architect-final-validate`.
+- **YES:** ask one question: "Ready to apply. Apply the plan now?" On yes, call `architect_canvas_apply_plan`.
+  - `applied=false`: report its blocking findings in the table format above. Do not retry silently.
+  - `applied=true`: report it, then offer the build: `architect_canvas_start_build` for a first build, or a redeploy (`architect_deployment_preview_redeploy`, then `architect_deployment_redeploy`) when the canvas already has one. Both provision real VMs, so run one only on the user's yes. Procedure and refusals: `refs/freeform-context.md` section 3.
+
 ## Constraints
 
-- **Read-only.** Tool calls are limited to: `architect_canvas_get_overview`, `architect_canvas_get_context`, `architect_canvas_get_projected_state`, `architect_canvas_get_budget`, `architect_canvas_search`, `architect_canvas_global_search`, `architect_canvas_precheck`, `architect_vlan_list`, `architect_vlan_get`, `architect_machine_list`, `architect_machine_get`, `architect_machine_list_files`, `architect_assigned_plugin_get`, `architect_assigned_plugin_get_param`, `architect_files_get`, `architect_files_get_json`, `architect_files_get_seeding_context`, `architect_files_get_type_schema`, `architect_files_list_counts`, `architect_files_list_types`, `architect_files_search_content`, `architect_forest_get_events`, `architect_forest_get_domain_trusts`, `architect_plugin_catalog_*` (search, list_full, list_templates, get_example), `discover_tools`, and `rogue_set_canvas` (standalone mode only). No mutations.
+- **Read-only.** Tool calls are limited to: `architect_canvas_get_overview`, `architect_canvas_get_context`, `architect_canvas_get_projected_state`, `architect_canvas_get_budget`, `architect_canvas_search`, `architect_canvas_global_search`, `architect_canvas_precheck`, `architect_vlan_list`, `architect_vlan_get`, `architect_machine_list`, `architect_machine_get`, `architect_machine_list_files`, `architect_assigned_plugin_get`, `architect_assigned_plugin_get_param`, `architect_files_get_json`, `architect_files_get_seeding_context`, `architect_files_get_type_schema`, `architect_files_list_counts`, `architect_files_list_types`, `architect_files_search_content`, `architect_forest_get_events`, `architect_forest_get_domain_trusts`, `architect_plugin_catalog_*` (search, list_full, list_templates, get_example), `discover_tools`, and `rogue_set_canvas`, `architect_canvas_list`, `architect_canvas_list_team` (standalone mode only). No mutations during the audit; the one write is `architect_canvas_apply_plan`, under After the Verdict.
 - **No clarifying questions before running.** Announce, then execute. Questions are acceptable mid-report only when a tool call returns an ambiguous result that blocks classification.
 - **Use draft nodeIds**, not canvas UUIDs.
 - **Canvas-only.** YMLs are inputs to the build; canvas is the audit subject. This skill does not read scenario YMLs from disk — every check resolves against canvas state via MCP tools.
@@ -392,7 +400,7 @@ Top 3 fixes (if NO): {ranked list of highest-severity findings with one-line fix
 
 ## Standalone Mode
 
-When invoked outside an active build session, accept a canvas version ID. Call `rogue_set_canvas` with the ID, then run the pipeline against current canvas state. No conversation context is required — this is the "audit a canvas someone else built" path. If no canvas ID is provided, ask for one before running.
+When invoked outside an active build session, use the bound canvas if one is set. Otherwise find it yourself: `architect_canvas_list` (the user's own; pass a literal `search` when they named one) or `architect_canvas_list_team` (teammates'), asking which only when several fit, or use a canvas version ID the user gives. Call `rogue_set_canvas`, then run the pipeline against current canvas state. No conversation context is required — this is the "audit a canvas someone else built" path.
 
 ## Server selection
 

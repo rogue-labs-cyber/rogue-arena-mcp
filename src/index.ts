@@ -14,6 +14,7 @@ import type { StoredTokens } from "./keychain.js";
 import { loginCommand, resolveProfile } from "./profile.js";
 import { createCredentialStore } from "./credential-store.js";
 import { Session } from "./session.js";
+import { callCanvasCategoryTool } from "./canvas-tool-call.js";
 import {
   META_TOOLS, handleMetaTool, isMetaTool, setDiscoverableTools, setAlwaysTools, setToolPromotion,
   setUnavailableToolFamilies, unavailableToolFamilies, unavailableFamilyForTool, describeUnavailableFamily, authStatusArgsRefusal,
@@ -591,8 +592,7 @@ async function main() {
     }
 
     try {
-      const canvasVersionId = session.requireCanvas();
-      const result = await hub.executeTool(name, canvasVersionId, callArgs);
+      const result = await callCanvasCategoryTool(hub, session, name, callArgs);
 
       if (!result.success) {
         return {
@@ -828,8 +828,7 @@ async function startDegradedServer(): Promise<void> {
           } else if (toolSchema.category === "ACTIVE_DEPLOYMENT") {
             result = await recoveredHub.executeActiveDeploymentTool(name, callArgs);
           } else {
-            const canvasVersionId = recoveredSession.requireCanvas();
-            result = await recoveredHub.executeTool(name, canvasVersionId, callArgs);
+            result = await callCanvasCategoryTool(recoveredHub, recoveredSession, name, callArgs);
           }
 
           if (!result.success) {

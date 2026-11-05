@@ -147,7 +147,7 @@ listing them in `/plugin`.
 
 **Tools not appearing** -- The MCP tools require auth: run `rogue-mcp login`, then restart your agent (Claude Code or Codex). Note that skills autocomplete without login, but the MCP tools do not. Run `rogue-mcp whoami` to verify auth.
 
-**"No canvas set"** -- Tell your agent to set a canvas, or use `rogue_set_canvas` with your canvas version ID from the Rogue Arena URL.
+**"No canvas is set"** -- Ask your agent to find your canvas with `architect_canvas_list` (or create one with `architect_canvas_create`) and set it with `rogue_set_canvas`. You never need to copy an ID from the Rogue Arena URL.
 
 ## License
 

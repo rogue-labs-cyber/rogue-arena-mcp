@@ -9,7 +9,7 @@ The network enrichment phase wires inter-VLAN connectivity for existing infrastr
 
 Zones are set by the domains phase at VLAN creation. See [shared-rules.md -- VLAN Zone Classification](../shared-rules.md#vlan-zone-classification) for the canonical zone table and flag semantics.
 
-**Fallback:** If a VLAN has no zone set, the implementor must halt and ask for a zone assignment. The implementor must not re-assign zones in enrichment.
+**Fallback:** If a VLAN has no zone set, halt and ask for a zone assignment. Do not re-assign zones in enrichment.
 
 ## Domain Trust Configuration
 
@@ -52,7 +52,7 @@ The default mental model: **between anything that should mutually trust each oth
 
 **Why this matters for trust pairs specifically:** DC-to-DC replication uses a dynamic RPC range (`49152-65535`) plus a dozen well-known ports. Threading 445 and the NetBIOS ports between domains "to be specific" buys nothing pedagogically and silently breaks replication when the dynamic range is omitted. Just `allow_all`.
 
-If the scenario *does* call for a segmented trust (rare — usually a pen-test lesson about a misconfigured trust), document the deviation in `aiNotes` on the connection and enumerate the full DC-to-DC set: `53, 88, 135, 137-139, 389, 445, 464, 636, 3268, 3269, 49152-65535`. The validator's `TRUST_PAIR_RESTRICTED` check fires when a trust pair is `block_all` with rules missing any of those ports.
+If the scenario *does* call for a segmented trust (rare — usually a pen-test lesson about a misconfigured trust), document the deviation in `aiNotes` on the connection and enumerate the full DC-to-DC set: `53, 88, 135, 137-139, 389, 445, 464, 636, 3268, 3269, 49152-65535`. `/architect-final-validate`'s `TRUST_PAIR_RESTRICTED` check fires when a trust pair is `block_all` with rules missing any of those ports.
 
 **Priority bands:**
 
@@ -75,11 +75,11 @@ If the scenario *does* call for a segmented trust (rare — usually a pen-test l
 
 ## Manual Rule Preservation
 
-If `manualRuleCount > 0` on any pair, the implementor must add new rules alongside the existing ones and preserve the existing default policy. Manual rules are user-authored and stay untouched.
+If `manualRuleCount > 0` on any pair, add new rules alongside the existing ones and preserve the existing default policy. Manual rules are user-authored and stay untouched.
 
 ## 8-Point Verification
 
-For every VLAN pair, the implementor must verify before reporting completion:
+For every VLAN pair, verify before reporting completion:
 
 1. **Zone check** — both VLANs have a zone assigned matching their contents.
 2. **Default policy** — trust pairs and same-zone high-trust peers use `allow_all` with no rules. `block_all` + enumerated allows is reserved for restricting *untrusted inbound* (DMZ from internet, DMZ → internal, isolated, management).
@@ -97,12 +97,12 @@ For every VLAN pair, the implementor must verify before reporting completion:
 3. Verify zones — every VLAN has a zone set (halt and ask if any is missing).
 4. Create firewall rules — `architect_vlan_manage_connection` per VLAN pair with trust level, rules, and default policy.
 5. Run 8-point verification — walk every VLAN pair through the protocol above.
-6. The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
+6. Verify state via `architect_canvas_get_overview` after this phase completes.
 
 ## Constraints
 
 - Every VLAN pair sharing a domain trust uses `defaultPolicy: allow_all` with no rules. Don't enumerate ports between trusted domains — threading 445/NetBIOS/etc. buys nothing and silently breaks replication when the dynamic RPC range is omitted.
 - Enumerate ports only when restricting untrusted inbound to a specific exposed service (e.g., 80/443 to a DMZ webserver). That's the case where `block_all` + targeted allows teaches something.
 - Isolated VLANs get `block_all` to all others. DMZ VLANs get `block_all` inbound from internal except for the specific app port the DMZ host actually needs.
-- Manual firewall rules stay intact — the implementor must add alongside and preserve the default policy.
-- At least 2 VLANs must exist (if fewer, the implementor must stop and report).
+- Manual firewall rules stay intact — add alongside them and preserve the default policy.
+- At least 2 VLANs must exist (if fewer, stop and report).

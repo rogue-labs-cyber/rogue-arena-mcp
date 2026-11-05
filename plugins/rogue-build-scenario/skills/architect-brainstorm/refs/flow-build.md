@@ -2,16 +2,14 @@
 
 > Loaded by `architect-brainstorm` after Gate 2. Do not invoke as a skill.
 
-## Canvas ID
+## Canvas
 
-Before catalog search, collect the canvas ID.
+Before catalog search, bind the canvas. Find or create it yourself; never ask the user to copy an ID.
 
-> "Before I search the plugin catalog, I need your canvas ID.
-> Create a new canvas in the Rogue Arena UI (or browse to an existing one),
-> click the animated Rogue Oracle button at the top left of the toolbar,
-> and click 'Get Started'. Then paste the canvas ID here."
-
-Set the canvas via `rogue_set_canvas` before proceeding.
+1. Ask one question: build on an existing canvas, or a new one?
+2. **Existing:** call `architect_canvas_list` (the user's own canvases; pass a literal `search` when the user named one) or `architect_canvas_list_team` (teammates' canvases). One match → confirm it by name. Several → show a short numbered list and ask which.
+3. **New:** call `architect_canvas_create` with a new `clientCommandId` (a UUID) and the company name from `scenario_part1.yml` as `name`. It finishes in the background: follow its `requestId` with `architect_canvas_action_status` (load it with `discover_tools(search: "action_status")` if it is not listed) until `status` is succeeded, then take `result.canvasVersionId`. A retry reuses the same `clientCommandId`, so it never creates a second canvas.
+4. Call `rogue_set_canvas` with the `canvasVersionId` before proceeding.
 
 ## Plugin mapping
 
@@ -50,4 +48,4 @@ One question. STOP. Wait for user response. Then write to `scenario_part1.yml`.
 - **Skip** → set `enrichment.files: false`. Servers and DCs also skipped.
 - **Number N** → set `enrichment.files: true` and `defaults.files_per_workstation: N`. Servers and DCs use platform defaults from `refs/scenario-schema.md`.
 
-Then return to the orchestrator. Stamp `canvas_id` into all three YML files, self-review against `refs/scenario-schema.md`, and load `refs/flow-validate.md`.
+Then return to the orchestrator. Stamp the bound `canvasVersionId` as `canvas_id` into all three YML files, self-review against `refs/scenario-schema.md`, and load `refs/flow-validate.md`.

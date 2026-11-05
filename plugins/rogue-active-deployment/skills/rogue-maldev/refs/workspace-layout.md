@@ -65,7 +65,7 @@ Each deployment gets its own `{ROGUE_WORKSPACE}/deployments/{name}/` subtree. No
 
 ## Finding "where you left off"
 
-When Phase 1 diary-check prompts resume, also inspect:
+When the Phase 1 resume check finds earlier runs, inspect:
 
 1. `runs/` — find the most recent run directory
 2. `runs/{latest}/per-technique/` — list files (these are completed techniques)

@@ -149,13 +149,14 @@ export class HubClient {
     }
   }
 
+  /** A canvas-category tool; with no bound canvas (null) the call carries none and runs on the caller's account. */
   async executeTool(
     actionType: string,
-    canvasVersionId: string,
+    canvasVersionId: string | null,
     input: Record<string, unknown>
   ): Promise<{ success: boolean; data?: unknown; error?: string }> {
     const url = `${this.hubUrl}/hub/mcp/vibe-tools/${encodeURIComponent(actionType)}`;
-    const body = JSON.stringify({ canvasVersionId, input });
+    const body = JSON.stringify(canvasVersionId === null ? { input } : { canvasVersionId, input });
 
     const res = await fetchWithRetry({
       url, method: "POST", body,

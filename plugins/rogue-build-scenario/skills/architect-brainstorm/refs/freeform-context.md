@@ -14,6 +14,7 @@ Architect MCP tools are grouped by prefix. Use `discover_tools` to see full desc
 - **Forest tools** (`architect_forest_*`): Manage domain topology, events, trusts
 - **File tools** (`architect_files_*`): Seed realistic workplace files on machines
 - **Deploy tools** (`architect_deploy_*`): Read-only deployment status and logs
+- **Apply and build tools** (`architect_canvas_apply_plan`, `architect_canvas_start_build`, `architect_deployment_preview_redeploy`, `architect_deployment_redeploy`, `architect_canvas_remove_build`): apply staged changes and run Architect builds (see section 3)
 
 Note: Deploy tools are lazy-loaded. Call `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "deploy")` before first use.
 
@@ -27,13 +28,24 @@ Read canvas state with `architect_canvas_get_overview` before any mutation to un
 
 ## 3. Draft / Apply Plan Lifecycle
 
-All mutations via MCP tools land in DRAFT state. Nothing is live until the user clicks Apply Plan in the UI. The backend returns draft `nodeId` values for every created entity — use these nodeIds for all subsequent tool calls, never raw canvas UUIDs.
+All mutations via MCP tools land in DRAFT state. Nothing is live until the plan is applied. The backend returns draft `nodeId` values for every created entity — use these nodeIds for all subsequent tool calls, never raw canvas UUIDs.
 
-Describe results as "staged," "queued," or "drafted" — never "deployed," "live," or "running." The user controls when drafts become real infrastructure.
+Describe results as "staged," "queued," or "drafted" — never "deployed," "live," or "running." Drafts become real infrastructure only after the plan is applied and a build runs.
 
-Multiple drafts can coexist. `architect_canvas_get_projected_state` previews what the canvas would look like after applying all pending drafts. Use it to sanity-check before the user applies.
+Multiple drafts can coexist. `architect_canvas_get_projected_state` previews what the canvas would look like after applying all pending drafts. Use it to sanity-check before you apply.
 
-Draft deletions (removing an existing entity) are also staged — the entity remains visible with a pending-delete marker until Apply Plan runs.
+Draft deletions (removing an existing entity) are also staged — the entity remains visible with a pending-delete marker until the plan is applied.
+
+**Applying the plan.** You apply it yourself: call `architect_canvas_apply_plan` (no input; it acts on the active canvas) after the user says the batch is done; if drafts you didn't stage are pending (for example a teammate's), name them and ask first. It runs the canvas precheck first. `applied=false` returns the blocking findings and changes nothing: fix them and call it again. It is refused when nothing is pending, when an Oracle conversation staged the pending plan last, or when the canvas changed while it was validating (re-read the canvas, then apply again). Applying builds nothing; a build is refused while changes are pending.
+
+**Builds.** For the user's own canvas you run the Architect build tools directly. Each one provisions or tears down real VMs, so say what it will do and wait for the user's yes first.
+
+- **First build:** `architect_canvas_start_build` with a new `clientCommandId` (a UUID). It is refused while changes are unapplied, and when every deployment slot is in use: tell the user to remove a deployment, then try again.
+- **Redeploy an existing build:** call `architect_deployment_preview_redeploy`, tell the user the strategy and effects it returns, then call `architect_deployment_redeploy` with the build's `deploymentRecordId`, the returned `planToken` as `expectedPlanToken`, its strategy as `expectedStrategy`, and a new `clientCommandId`. A canvas change after the preview invalidates the token: preview again, never invent one.
+- **Remove a build:** `architect_canvas_remove_build` with the builder `deploymentRecordId` (from `architect_deploy_list_status`) and a new `clientCommandId`.
+- **Follow a build** with `architect_deploy_list_status` every minute or two. Builds typically take 5 to 15 minutes; stop when it reports the build succeeded, failed or was cancelled.
+
+Reuse a `clientCommandId` only to retry the same request.
 
 ## 4. DC-First Ordering
 
@@ -111,9 +123,7 @@ See `refs/shared-rules.md` (Content Appropriateness). Professional cybersecurity
 
 ### Security Posture & Domain Relationships
 
-See `refs/shared-rules.md` (Security Posture, Domain Relationship Vocabularies) for full tables. Key freeform note:
-
-**NOTE:** `architect_forest_get_domain_trusts` currently returns `trustDirection: 'bidirectional'` for all forest-event-derived trusts. Trust direction data may be inaccurate for acquisitions and parent_child relationships.
+See `refs/shared-rules.md` (Security Posture, Domain Relationship Vocabularies) for full tables.
 
 ### Forest Event Generation
 

@@ -23,7 +23,7 @@ For each technique in the playbook:
 - **Execute** OS-aware via `deployment_run_script`. Payloads longer than ~20s use `deployment_run_script_bg` + `deployment_bg_output` + `deployment_script_status` — the synchronous tool times out at 30s.
 - **Verify** that the technique landed: exit code + artifact check. On failure, follow the classification branch below before retrying.
 - **Observe** the SIEM per `refs/siem-query-patterns.md`: `test_id` filter first, 15-min window, broaden-on-empty ladder. Quote rule names / severities as evidence.
-- **Record** the result to `runs/{ts}/per-technique/{MITRE-ID}.json` per `refs/report-artifact.md`, and write a diary entry via `deployment_diary_write`.
+- **Record** the result to `runs/{ts}/per-technique/{MITRE-ID}.json` per `refs/report-artifact.md`.
 - **Decide** next move: continue, revert and retry, revert and move on, keep current state, or stop. If the user provided `auto: true` in the run spec, skip the confirmation — continue on verify+observe success, self-correct once then revert on failure.
 
 After a revert: poll to completion, then refresh VM inventory with `deployment_list_vms` before the next iteration. The deployment is in a transitional state mid-revert and other tools return stale data.
@@ -57,6 +57,5 @@ Do not self-correct when classification is AV-block — that needs payload mutat
 ## Closing
 
 On stop or end-of-playbook:
-1. Write the final `runs/{ts}/report.md` per `refs/report-artifact.md`.
-2. Log an `engagement_summary` diary entry pointing at the report path.
-3. Deliver the closing advisory about direct-shell vs C2-wrapped detection surface.
+1. Write the final `runs/{ts}/report.md` per `refs/report-artifact.md`, and tell the user its path.
+2. Deliver the closing advisory about direct-shell vs C2-wrapped detection surface.

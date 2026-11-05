@@ -275,8 +275,6 @@ Two independent axes describe how domains relate. A single forest relationship (
 | `shared_services` | `bidirectional` |
 | `sibling` | `bidirectional` |
 
-NOTE: `architect_forest_get_domain_trusts` currently returns `trustDirection: 'bidirectional'` for all forest-event-derived trusts. Trust direction data may be inaccurate for acquisitions and parent_child relationships.
-
 ## Security Posture
 
 Security posture is an enum on the company profile that shapes AD organization, password distribution, naming consistency, DMZ behavior, and VLAN purpose text.
@@ -362,8 +360,6 @@ Per-tool size-guard limits (as of this rollout):
 | `architect_forest_manage` (`set` only) | `bpData` JSON stringified | 16 KB |
 | `architect_vlan_manage_backstory` | `bpData` JSON stringified | 4 KB |
 | `architect_machine_manage_backstory` (`set_backstory` only) | `bpData` JSON stringified | 4 KB |
-
-The `add_events` / `add_event` / `add_relationship` / `update_events` operations on forest_manage and machine_manage_backstory are NOT size-guarded; use them directly for incremental appends without staging.
 
 ## Default Tool Discovery
 

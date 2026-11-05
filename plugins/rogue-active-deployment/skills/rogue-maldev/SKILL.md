@@ -40,7 +40,7 @@ Each phase has a dedicated ref. Read the ref at the start of the phase.
 
 | Phase | Purpose | Read |
 |---|---|---|
-| 1 | Hard gates, workspace, diary resume, time-sync | `refs/phase-1-gates.md` |
+| 1 | Hard gates, workspace, resume, time-sync | `refs/phase-1-gates.md` |
 | 2 | TTP category menu | `refs/phase-2-ttp-categories.md` |
 | 3 | Online research — prefer ART YAML | `refs/phase-3-research.md` + `refs/art-adapter.md` |
 | 4 | Technique file dump to workspace | `refs/phase-4-technique-files.md` |
@@ -67,13 +67,13 @@ Each phase has a dedicated ref. Read the ref at the start of the phase.
 
 ## Output
 
-Per technique: write `runs/{ts}/per-technique/{MITRE-ID}.json` + diary entry.
+Per technique: write `runs/{ts}/per-technique/{MITRE-ID}.json`.
 Per run: write `runs/{ts}/report.md` with the expected-vs-observed rule matrix.
 Closing advisory reminds the user that direct-shell results differ from C2-wrapped execution.
 
 ## Handoff
 
-Same skill: "Run `/rogue-maldev` again anytime — your workspace and diary persist, we'll pick up where you left off." Resume logic in `refs/workspace-layout.md`.
+Same skill: "Run `/rogue-maldev` again anytime — your workspace persists, we'll pick up where you left off." Resume logic in `refs/workspace-layout.md`.
 
 ## Server selection
 

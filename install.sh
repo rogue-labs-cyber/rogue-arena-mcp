@@ -227,6 +227,11 @@ if [ "$HAVE_CODEX" = true ]; then
   CODEX_SKILL_COUNT=0
   if [ -d "$INSTALL_DIR/plugins" ]; then
     mkdir -p "$CODEX_SKILLS"
+    # Skills an earlier release installed that this one no longer ships
+    # (rogue-plugin-builder replaced both).
+    for retired in rogue-plugin-brainstorm rogue-plugin-develop; do
+      rm -rf "${CODEX_SKILLS:?}/$retired"
+    done
     for skill_dir in "$INSTALL_DIR"/plugins/*/skills/*/; do
       [ -d "$skill_dir" ] || continue
       [ -f "${skill_dir}SKILL.md" ] || continue

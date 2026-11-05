@@ -79,7 +79,9 @@ export const META_TOOLS = [
   {
     name: "rogue_set_canvas",
     description:
-      "Set the active canvas version ID for this session. Must be called before using any other Rogue Arena tool. Get the canvas ID from the Rogue Arena UI URL.",
+      "Set the active canvas version ID for this session. Canvas tools (machines, VLANs, plugins on a canvas, builds, curriculum) need it; " +
+      "the account tools do not. Find the ID with architect_canvas_list (your Blueprints), architect_canvas_list_team (your team's) " +
+      "or architect_canvas_create (a new Blueprint), then set it here.",
     inputSchema: {
       type: "object" as const,
       properties: {

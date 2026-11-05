@@ -13,15 +13,15 @@ Do not use TodoWrite during build execution. The checklist encodes step ordering
 
 **LAW 1.5: Addon Config Samples take precedence over hand-rolled config.** The `list_full` response carries `addonConfigSamples[{ sampleId, name, notes, language }]` per plugin. When `addonConfigSampleCount > 0`, scan the `notes` fields to find a sample matching the machine's character backstory / role / story (notes are the discovery surface — names are typically terse). Fetch the chosen sample's code with `architect_plugin_catalog_get_addon_config_sample({ sampleId })`, tweak in-memory (rename users to the scenario's `samAccountName`s, swap hostnames, adjust file paths), and feed it into the plugin's `stringBlock` param via `_set_params`. Writing a fresh timeline / rule set / profile when a working sample already ships is a silent regression — defaults are sample-first. Distinct from `architect_plugin_catalog_get_example` — that tool returns plugin USAGE examples (how a plugin was wired into a real scenario); this one returns CONFIG content the plugin operates on at runtime.
 
-**LAW 2: User assignments require full bpData with every field filled.** `architect_machine_manage_user` with sparse bpData produces empty user profiles that starve downstream file seeding. The implementor must fill every field in the `bpData.assignment` schema — identity, personal background, work behavior, and AD placement. Invent plausible values grounded in the scenario's industry and departments.
+**LAW 2: User assignments require full bpData with every field filled.** `architect_machine_manage_user` with sparse bpData produces empty user profiles that starve downstream file seeding. Fill every field in the `bpData.assignment` schema — identity, personal background, work behavior, and AD placement. Invent plausible values grounded in the scenario's industry and departments.
 
-**LAW 3: Completion claims require tool-output evidence.** The implementor must report machines as "done," "complete," or "ready" only after calling `architect_canvas_get_overview` (and `architect_vlan_get` for each VLAN it built) and quoting the returned state — machine count per VLAN, plugin assignments per machine, user assignments. Tool output is the only evidence; "looks good" is not.
+**LAW 3: Completion claims require tool-output evidence.** Report machines as "done," "complete," or "ready" only after calling `architect_canvas_get_overview` (and `architect_vlan_get` for each VLAN you built) and quoting the returned state — machine count per VLAN, plugin assignments per machine, user assignments. Tool output is the only evidence; "looks good" is not.
 
 ## Checklist
 
 Complete these steps in order.
 
-**Manifest prerequisite:** The machine manifest comes from the domains phase in conversation context. If no manifest is present (new session, /clear between domains and machines, or the implementor jumped straight to machines), stop and report: "I don't have the machine manifest in this session. The domains phase needs to run first to produce it — VLAN `bp_context` only carries purpose and budget, not the machine plan." Do not guess or re-derive the manifest from VLAN state.
+**Manifest prerequisite:** The machine manifest comes from the domains phase in conversation context. If no manifest is present (new session, /clear between domains and machines, or the build step jumped straight to machines), stop and report: "I don't have the machine manifest in this session. The domains phase needs to run first to produce it — VLAN `bp_context` only carries purpose and budget, not the machine plan." Do not guess or re-derive the manifest from VLAN state.
 
 1. **Read VLAN context** — Call `architect_vlan_get(includeBpContext: true)` for the target VLAN. This returns domain info and company context. For AD data (OUs, groups, users), use `architect_canvas_global_search` or check DC plugin params via `architect_assigned_plugin_get_param`.
 2. **Read reference files** — Read `refs/shared-rules.md` for size limits, hostname rules, and resource defaults. Domain knowledge for machine creation, plugin configuration, and user profiles is inlined in this phase doc below.
@@ -86,7 +86,7 @@ DCs are the most involved machines to configure:
 
 Users assigned via `architect_machine_manage_user` need rich bpData. These fields DIRECTLY drive file seeding in later tiers — sparse profiles produce sparse files.
 
-The implementor must fill every field in the `bpData.assignment` schema — the schema includes identity (name, title, department), personal background (bio, hobbies, pets, personality, entertainment), work behavior (technical skill, filing habits, work style, communication style), and AD placement (OU path, groups, manager). Pull values from the company context and the DC's CreateUsers CSV param (via `architect_assigned_plugin_get_param` or `architect_canvas_global_search`). Invent plausible values grounded in the scenario's industry and departments.
+Fill every field in the `bpData.assignment` schema — the schema includes identity (name, title, department), personal background (bio, hobbies, pets, personality, entertainment), work behavior (technical skill, filing habits, work style, communication style), and AD placement (OU path, groups, manager). Pull values from the company context and the DC's CreateUsers CSV param (via `architect_assigned_plugin_get_param` or `architect_canvas_global_search`). Invent plausible values grounded in the scenario's industry and departments.
 
 ### Subagent Dispatch for User bpData
 
@@ -123,7 +123,7 @@ The VLAN context from `architect_vlan_get(includeBpContext: true)` provides:
 - `companyContext` — company name and industry for realistic naming
 - `vlanContext.purpose` — what this VLAN is for
 
-Use this context to make decisions. When adding a web server, the VLAN context tells the implementor what company this is, what the VLAN is for, and what would make sense.
+Use this context to make decisions. When adding a web server, the VLAN context tells you what company this is, what the VLAN is for, and what would make sense.
 
 ### Where to Find AD Data
 

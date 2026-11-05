@@ -152,7 +152,7 @@ For fewer than 3 VLANs, generate bpData inline without subagents.
 
 For each VLAN, plan which machines it needs. This is handoff to the machines phase -- the domains phase plans, machines executes.
 
-**Handoff is conversation-only.** The manifest output lives in orchestrator conversation -- there is no backend persistence tool for it. If the user ends the session or clears context between domains and machines, the manifest is lost and domains must re-run. The implementor warns the user before they end a session mid-cascade.
+**Handoff is conversation-only.** The manifest output lives in orchestrator conversation -- there is no backend persistence tool for it. If the user ends the session or clears context between domains and machines, the manifest is lost and domains must re-run. Warn the user before they end a session mid-cascade.
 
 **AD-enabled VLANs:**
 - 1+ Domain Controller (always first -- it creates the domain)
@@ -219,7 +219,7 @@ For single-domain forests: `trusts: []`.
 
 ### Workstation Application Grounding
 
-The implementor must name specific, real-world business applications appropriate to the company's industry when describing workstation purposes.
+Name specific, real-world business applications appropriate to the company's industry when describing workstation purposes.
 
 ## Breadcrumb
 
@@ -239,7 +239,7 @@ Execution sequence:
 8. For each VLAN: generate bpData (purpose, zone) -> `architect_vlan_add`. Use subagents for 3+ VLANs.
 9. `architect_vlan_list` -- read back created VLANs to get `vlanNodeIds`
 10. Plan machine manifests per VLAN. Verify DC-first, plugin provenance, budget match.
-11. The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
+11. Verify state via `architect_canvas_get_overview` after this phase completes.
 
 ## ADD_VLAN Workflow (Existing Canvas)
 
@@ -253,7 +253,7 @@ Execution sequence:
 
 ## Gates
 
-**GATE 1: FQDN Case & Suffix.** All `domainFQDN` values are lowercase AND end in `.local`. Case-sensitive matching breaks on mixed case; non-`.local` suffixes are rejected by the server-side write boundary. The implementor must confirm both before calling any tool that accepts a domain FQDN.
+**GATE 1: FQDN Case & Suffix.** All `domainFQDN` values are lowercase AND end in `.local`. Case-sensitive matching breaks on mixed case; non-`.local` suffixes are rejected by the server-side write boundary. Confirm both before calling any tool that accepts a domain FQDN.
 
 **GATE 2: Causality Chain.** Every forest event references at least one prior event by ID in its description. Disconnected events produce a timeline, not a story -- rewrite instead of shipping.
 
@@ -272,7 +272,7 @@ Execution sequence:
 - Every VLAN gets at least 1 plugin and at least 1 machine.
 - Company context must exist before generating forest events (`architect_canvas_get_context`).
 - Subagent instructions include the path to `shared-rules.md` for size limits and naming conventions.
-- The implementor verifies state via `architect_canvas_get_overview` after this phase completes.
+- Verify state via `architect_canvas_get_overview` after this phase completes.
 - Flag unrealistic budgets (e.g., 3 AD-enabled VLANs with a budget of 4) before generating.
 - Only assign plugins that serve a real role on the VLAN -- skip force-fits.
 

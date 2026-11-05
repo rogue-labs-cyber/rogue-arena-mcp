@@ -9,13 +9,13 @@ The investigator diagnoses deployment failures. Given a deployment ID, the inves
 
 ## Prerequisite
 
-A **deployment ID** is required before investigation can begin. The investigation is always scoped to a specific deployment.
+The investigation is always scoped to one deployment: the active canvas's build, read with `architect_deploy_list_status`. Bind the canvas first (`architect_canvas_list`, then `rogue_set_canvas`) when none is set.
 
 ## Investigation Checklist
 
 Complete these steps in order:
 
-1. **Get deployment ID** — Confirm a deployment ID has been provided. If specific machines or error messages are mentioned, note those for targeted investigation.
+1. **Scope the deployment** — Confirm the canvas is bound (see Prerequisite); steps 2 and 3 load the deploy tools and read its build. If specific machines or error messages are mentioned, note those for targeted investigation.
 2. **Discover deploy tools** — Call `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "deploy")` to load all deploy monitoring tools. These are not available by default.
 3. **Get deployment overview** — Call `architect_deploy_list_status` first to get the big picture: overall deployment status, per-machine status, completed/failed/in-progress counts. This is always the starting point.
 4. **Triage failures** — Call `architect_deploy_list_failed` to get detailed error context for all failed machines: failed plugin names, error messages, and execution order. Use this to prioritize which machines to deep-dive into.
@@ -90,20 +90,12 @@ Start-Service -Name 'MyService'  # Error: 'Cannot find service MyService'
 
 1. Look for `.exe` calls in the script before the failing line
 2. Check if the exe is actually present at the specified path (file copy may have failed earlier)
-3. Check if the exe requires dependencies (DLLs, runtimes, drivers like viosock)
+3. Check if the exe requires dependencies (DLLs, runtimes)
 4. The exe's output/error may appear in `host_out` or `host_err` in the ansible JSON output
 
-#### Example
+#### Platform Tools
 
-```
-Error: Start-Service : Cannot find any service with service name 'RogueArenaOfflimitsAgent'
-Script:
-  c:\scripts\file-syncer-agent.exe install --port 5000  # <-- ACTUAL FAILURE (silent)
-  Start-Service -Name 'RogueArenaOfflimitsAgent'         # <-- REPORTED FAILURE
-
-Root cause: file-syncer-agent.exe install failed without throwing an exception.
-The service was never registered, so Start-Service fails.
-```
+If exec or file tools fail on a machine, report it to Rogue Arena support; don't modify platform services.
 
 ### LIVEDEPLOY Tools
 

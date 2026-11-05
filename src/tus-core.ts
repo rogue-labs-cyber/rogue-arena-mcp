@@ -5,6 +5,11 @@ import type { AuthProvider } from "./auth.js";
 
 export const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MiB
 export const UPLOAD_BPS = 20 * 1024 * 1024; // 20 MB/s cap
+/**
+ * The upload affinity header (the web client's own name). Every request of one upload carries the same affinity value,
+ * so a resumed upload continues where it left off; a new upload carries a new one.
+ */
+export const TUS_UPLOAD_AFFINITY_HEADER = "X-RA-Upload-Affinity";
 
 // Bumped from 5 → 8 to give three categories (deployment, plugin, architect)
 // slot headroom. Revisit if starvation repros in practice.
@@ -46,7 +51,8 @@ export function finishTransfer(
   state._abortController = undefined;
   state._tusUpload = undefined;
   state._writeStream = undefined;
-  setTimeout(() => activeTransfers.delete(state.transferId), TRANSFER_CLEANUP_MS);
+  // Cleanup only: it never keeps the process alive on its own.
+  setTimeout(() => activeTransfers.delete(state.transferId), TRANSFER_CLEANUP_MS).unref();
 }
 
 export function countActiveTransfers(): number {
@@ -167,8 +173,8 @@ export function startTusUpload(params: StartTusUploadParams): TusUploadHandle {
     endpoint,
     chunkSize: CHUNK_SIZE,
     uploadSize: fileStats.size,
-    // Initial headers; Authorization is refreshed per-attempt in onBeforeRequest.
-    headers: {},
+    // Sent on every request of this upload, retries included; Authorization is refreshed per-attempt in onBeforeRequest.
+    headers: { [TUS_UPLOAD_AFFINITY_HEADER]: transferId },
     metadata: tusMetadata,
     retryDelays: [0, 3000, 5000, 10000],
     onBeforeRequest: async (req) => {

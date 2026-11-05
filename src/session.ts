@@ -58,15 +58,10 @@ export class Session {
     writePersistedCanvas(this.sessionFilePath, canvasVersionId);
   }
 
-  requireCanvas(): string {
-    // Re-read from file in case another process set it since last check
+  /** The bound canvas, re-read from the session file in case another process set it; null when none is bound. */
+  currentCanvas(): string | null {
     if (!this._canvasVersionId) {
       this._canvasVersionId = readPersistedCanvas(this.sessionFilePath);
-    }
-    if (!this._canvasVersionId) {
-      throw new Error(
-        "No canvas set. Call the rogue_set_canvas tool first with a canvas version ID."
-      );
     }
     return this._canvasVersionId;
   }

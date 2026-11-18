@@ -106,8 +106,8 @@ Before mutating anything:
 
 Follow `refs/freeform-context.md`. Staging order, top-down:
 
-1. **Domains** (if any) — `architect_forest_manage` to declare domain topology.
-2. **VLANs** — `architect_vlan_add` per VLAN, with the zone from the outline.
+1. **Domains** (if any) — `architect_forest_manage` (`addBackstories`, one per domain FQDN ending in `.local`) to declare domain topology.
+2. **VLANs** — `architect_vlan_add` per VLAN, with the outline's zone in its `aiNotes`.
 3. **Machines** — `architect_machine_add` per machine. Per-VLAN order: DCs first, then servers, then workstations.
 4. **Plugins** — for each machine in the outline:
    - Concatenate `platformPlugins` + `projectPlugins`. For project plugins, use the `pluginId` from `project.json`.
@@ -200,7 +200,7 @@ projects/<project>/<plugin>/
 - `notes` is the discovery surface — write it for a future Claude scanning the catalog: *when* to pick this sample, what end state it produces, what params on the consuming machine it assumes.
 - Samples are NOT parameters and NOT vault uploads. Installer binaries still go in `for_plugin_vault/` via `plugin_dev_upload_to_vault`; runtime knobs the lab author tunes are still params via `plugin_dev_add_param`.
 
-**Discovery side (for context).** Downstream sessions see `addonConfigSampleCount` on `architect_plugin_catalog_search`, full summaries (no code) on `architect_plugin_catalog_list_full`, and pull the body via `architect_plugin_catalog_get_addon_config_sample(sampleId)`. The plugin must expose a file-seeding param (typically `stringBlock`) for samples to actually land on a target machine — if this plugin ships samples but has no file-seeding param, surface that gap so the user can add one.
+**Discovery side (for context).** Downstream sessions see the summaries (no code) on `architect_plugin_catalog_list_full` (`addonConfigSamples`), and pull the body via `architect_plugin_catalog_get_addon_config_sample(sampleId)`. The plugin must expose a file-seeding param (typically `stringBlock`) for samples to actually land on a target machine — if this plugin ships samples but has no file-seeding param, surface that gap so the user can add one.
 
 ---
 

@@ -1,5 +1,6 @@
 import type { AuthProvider } from "./auth.js";
 import { describeHubFailure, HubRequestError } from "./hub-errors.js";
+import { readToolAnswer, type ToolAnswer } from "./tool-answer.js";
 
 export interface ToolSchema {
   name: string;
@@ -97,7 +98,7 @@ export class HubClient {
   async executePluginDevTool(
     actionType: string,
     input: Record<string, unknown>
-  ): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  ): Promise<ToolAnswer> {
     const url = `${this.hubUrl}/hub/mcp/plugin-dev-tools/${encodeURIComponent(actionType)}`;
     const body = JSON.stringify({ input });
 
@@ -110,14 +111,14 @@ export class HubClient {
       throw await refusal(res, this.auth, body);
     }
 
-    return (await res.json()) as { success: boolean; data?: unknown; error?: string };
+    return readToolAnswer(await res.json(), actionType);
   }
 
   async executeActiveDeploymentTool(
     actionType: string,
     input: Record<string, unknown>,
     options?: { signal?: AbortSignal }
-  ): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  ): Promise<ToolAnswer> {
     const url = `${this.hubUrl}/hub/mcp/active-deployment-tools/${encodeURIComponent(actionType)}`;
     const body = JSON.stringify({ input });
 
@@ -131,7 +132,7 @@ export class HubClient {
       throw await refusal(res, this.auth, body);
     }
 
-    return (await res.json()) as { success: boolean; data?: unknown; error?: string };
+    return readToolAnswer(await res.json(), actionType);
   }
 
   /** Throws a HubRequestError carrying the hub's status when the caller may not open the canvas. */
@@ -154,7 +155,7 @@ export class HubClient {
     actionType: string,
     canvasVersionId: string | null,
     input: Record<string, unknown>
-  ): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  ): Promise<ToolAnswer> {
     const url = `${this.hubUrl}/hub/mcp/vibe-tools/${encodeURIComponent(actionType)}`;
     const body = JSON.stringify(canvasVersionId === null ? { input } : { canvasVersionId, input });
 
@@ -167,6 +168,6 @@ export class HubClient {
       throw await refusal(res, this.auth, body);
     }
 
-    return (await res.json()) as { success: boolean; data?: unknown; error?: string };
+    return readToolAnswer(await res.json(), actionType);
   }
 }

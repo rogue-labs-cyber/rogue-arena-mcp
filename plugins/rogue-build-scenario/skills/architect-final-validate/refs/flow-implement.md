@@ -2,7 +2,7 @@
 
 > Loaded by `architect-brainstorm` only after `refs/flow-validate.md` passes **and** the user confirms the build. Do not invoke as a skill. Never call `Skill()`.
 >
-> MUTATES live canvas state. `architect_canvas_set_context` has REPLACE semantics.
+> MUTATES live canvas state. `architect_canvas_set_context` replaces all four settings on every call, and `architect_forest_manage` replaces the organization or the story clock whole when a call carries it.
 
 This step runs the full build without further prompting, apart from the checkpoints below. Step 3 is the last cheap place to catch a wrong canvas — do not skip it, and echo the canvas name and current counts before writing anything.
 
@@ -16,7 +16,7 @@ This step runs the full build without further prompting, apart from the checkpoi
 4. **Resume detection** — Check diary (`diary_read`) + implementation.yml on disk for partial builds
    - If partial build found → present: "Found partial build — Phase A completed. Resume from Phase B?"
    - Resume from next incomplete phase
-5. **Pre-build diary entry** — The user just approved this build, so before the first write call `diary_write` once, for the next Oracle chat or MCP session on this canvas: `USER_INTENT`, or `USER_DECISION` when the user's choices shaped the design. Say what is being built and why, the key design decisions and constraints (domains, accounts, each machine's purpose), and what remains (the course, final validate, applying the plan, the Architect build). At most 800 characters. Do not claim validation or apply succeeded. Skip it when the diary already records this design, as on a resume.
+5. **Pre-build diary entry** — The user just approved this build, so before the first write call `diary_write` once, for the next Oracle chat or MCP session on this canvas: `user_intent`, or `user_decision` when the user's choices shaped the design. Say what is being built and why, the key design decisions and constraints (domains, accounts, each machine's purpose), and what remains (the course, final validate, applying the plan, the Architect build). At most 800 characters. Do not claim validation or apply succeeded. Skip it when the diary already records this design, as on a resume.
 
 ## Context Window Management
 
@@ -34,7 +34,7 @@ Load phase ref docs JUST-IN-TIME, not all at once:
 3. Plugin catalog lookups for every planned machine role (use decision logic table below)
 4. Budget math: calculate total RAM/CPU from machine counts using per-machine defaults
 5. Naming convention derivation (follow refs/phases/canvas.md naming decision process)
-6. Forest event generation (follow refs/phases/domains.md 3-phase generation)
+6. Forest story planning: dated history, domain backstories, AD artifacts (follow refs/phases/domains.md 3-phase generation)
 7. Write implementation.yml to scenario directory
 8. Surface ALL expansion flags to user (missing plugins, budget warnings, substitution suggestions)
 9. If `review_tier2: true` → present full implementation.yml for user review
@@ -48,7 +48,7 @@ Load phase ref docs JUST-IN-TIME, not all at once:
 | Plugin selection (purpose → search terms) | refs/phases/machines.md — plugin resolution workflow |
 | Machine allocation (DCs/servers/workstations split) | refs/phases/domains.md — budget allocation tables + shared-rules ratios |
 | Naming conventions (company → hostname prefix) | refs/phases/canvas.md — naming decision process |
-| Forest events (milestones → AD events) | refs/phases/domains.md — 3-phase CHRONICLE/PORTRAITS/AD MATERIALIZATION |
+| Company history (milestones → dated history → AD artifacts) | refs/phases/domains.md — 3-phase CHRONICLE/PORTRAITS/AD MATERIALIZATION |
 | Network topology (zone → firewall rules) | refs/phases/enrichment-network.md — zone-default rule tables |
 | Character generation | Phase B via Haiku subagent per refs/phases/canvas.md |
 | Budget limits | Phase A calls `architect_canvas_get_budget` as first MCP call to get actual limits |
@@ -59,16 +59,16 @@ Load phase ref docs JUST-IN-TIME, not all at once:
 
 Execute in this order, following the JIT-loaded ref doc for each step:
 
-### B.1: Set Canvas Context
+### B.1: Write the Company and the Settings
 - Load refs/phases/canvas.md
-- Generate company profile, characters (via Haiku subagent), leadership, technical infra
-- Call `architect_canvas_set_context` ONCE (REPLACE semantics — one call with everything)
+- Generate the organization (departments, dated history, naming conventions), the story clock and the executives (via Haiku subagent)
+- Call `architect_canvas_set_context` with the four settings (`securityPosture`, `characterStyle`, `allowedFranchises`, `constraints`), then `architect_forest_manage` ONCE with `world` and `addPeople` (the executives)
 
 ### B.2: Create Forest Topology
 - Load refs/phases/domains.md
-- Create domains, generate forest events (3-phase: CHRONICLE → PORTRAITS → AD MATERIALIZATION)
-- Create domain backstories, set cross-domain relationships and trusts
-- Call `architect_forest_manage` operations
+- Create domains, generate the forest story (3-phase: CHRONICLE → PORTRAITS → AD MATERIALIZATION)
+- Add the history to the organization, create domain backstories, set cross-domain relationships and trusts
+- Call `architect_forest_manage` once (each payload key, such as `world`, `addBackstories` or `addRelationships`, says the job)
 
 ### B.3: Create VLANs
 - Still using domains ref doc
@@ -79,13 +79,14 @@ Execute in this order, following the JIT-loaded ref doc for each step:
 - Load refs/phases/machines.md
 - Follow DC-first ordering (DCs → servers → workstations)
 - For each machine: create machine, add plugins, set params, assign users
-- Follow LAW 1 (catalog before params), LAW 2 (full bpData), LAW 3 (completeness verification)
-- LAW 1.5 (Addon Config Samples first): when `architect_plugin_catalog_list_full` returns a plugin with `addonConfigSampleCount > 0`, scan the `addonConfigSamples[{ sampleId, name, notes, language }]` summaries in the same response BEFORE authoring runtime config content from scratch. The `notes` field is the match key — pick the sample whose notes align with the machine's character/role/story, fetch via `architect_plugin_catalog_get_addon_config_sample(sampleId)`, tweak in memory (SAMs, hostnames, file paths), and pass into the plugin's `stringBlock` param via `_set_params`. Authoring config from scratch when a working sample matches is a silent regression.
+- Follow LAW 1 (catalog before params), LAW 2 (every user assignment field filled), LAW 3 (completeness verification)
+- LAW 1.5 (Addon Config Samples first): when `architect_plugin_catalog_list_full` returns a plugin with a non-empty `addonConfigSamples`, scan its `addonConfigSamples[{ sampleId, name, notes, language }]` summaries in the same response BEFORE authoring runtime config content from scratch. The `notes` field is the match key — pick the sample whose notes align with the machine's character/role/story, fetch via `architect_plugin_catalog_get_addon_config_sample(sampleId)`, tweak in memory (SAMs, hostnames, file paths), and pass into the plugin's `stringBlock` param via `_set_params`. Authoring config from scratch when a working sample matches is a silent regression.
 - Idempotency: check `architect_machine_list` before creating — skip if exists
 
 ### B.5: Run Enrichment
 - Only run enabled types (respect scenario.yml `enrichment:` boolean flags)
 - Run in dependency order: backstory → relationships → files → network
+- Before files, the world record holds the organization, the story clock and every assigned account (`refs/phases/enrichment-files.md`, Prerequisite); a file write for a machine with people on it is refused until it does
 - Load each enrichment ref doc JIT before running that type
 - Skip disabled types entirely
 
@@ -97,16 +98,16 @@ Plugin names are not hardcoded — they evolve. Always resolve via catalog searc
 
 | Data setup that happened | Required orchestration plugin | How to resolve |
 |--------------------------|-------------------------------|----------------|
-| Primary user assigned to a workstation/desktop via `architect_machine_manage_user` and that user is expected to auto-login on boot | An auto-login plugin matching the machine's OS family (Windows, Linux, etc.) | `architect_plugin_catalog_search` with terms like `"auto login"` / `"autologin"`; filter the result list by the machine's OS. If multiple candidates match, pick the canonical one for that OS or checkpoint to user. |
+| Primary user assigned to a workstation/desktop via `architect_machine_assign_user` and that user is expected to auto-login on boot | An auto-login plugin matching the machine's OS family (Windows, Linux, etc.) | `architect_plugin_catalog_search` with terms like `"auto login"` / `"autologin"`; filter the result list by the machine's OS. If multiple candidates match, pick the canonical one for that OS or checkpoint to user. |
 | Files uploaded to a vault destined for delivery to a machine | **File Copy** plugin on the same machine, pointing at the vault path | `architect_plugin_catalog_search` with term `"File Copy"` (this name is generic and stable). |
-| Primary user assigned to a Windows workstation/desktop via `architect_machine_manage_user` | An Office install plugin (provides Word, Excel, etc. so users can open .docx/.xlsx artifacts seeded on the machine) | `architect_plugin_catalog_search` with terms like `"Office install"` / `"Microsoft Office"`; filter to Windows. If multiple candidates match, pick the canonical one or checkpoint to user. |
+| Primary user assigned to a Windows workstation/desktop via `architect_machine_assign_user` | An Office install plugin (provides Word, Excel, etc. so users can open .docx/.xlsx artifacts seeded on the machine) | `architect_plugin_catalog_search` with terms like `"Office install"` / `"Microsoft Office"`; filter to Windows. If multiple candidates match, pick the canonical one or checkpoint to user. |
 
-**Plugin `run_order` matters.** When File Copy and Auto Login are both assigned to the same machine, set File Copy's `run_order` HIGHER than Auto Login's. Auto Login creates the user profile folders (Desktop, Documents, AppData) that File Copy needs as destinations — if File Copy fires first, Ansible has nowhere to copy the files. Set this when calling `architect_assigned_plugin_set_params` for File Copy.
+**Plugin run order matters.** When File Copy and Auto Login are both assigned to the same machine, File Copy runs AFTER Auto Login (a higher `position`). Auto Login creates the user profile folders (Desktop, Documents, AppData) that File Copy needs as destinations — if File Copy fires first, Ansible has nowhere to copy the files. Set the order with `architect_assigned_plugin_reorder` (`machine`, `orderedPlugins`), or `architect_assigned_plugin_update` with a higher `runOrderSequence`; `architect_assigned_plugin_set_params` sets values only.
 
 Steps for each pattern, per machine:
 1. Read currently assigned plugins via `architect_machine_get`.
 2. If the orchestration plugin is missing, search the catalog (do NOT hardcode plugin names).
-3. Call `architect_assigned_plugin_add` with the resolved plugin and the appropriate params — user SAM + password for auto-login; vault path / destination for File Copy.
+3. Call `architect_assigned_plugin_add` (`machine`, `pluginId`) with the resolved plugin, then `architect_assigned_plugin_set_params` with the appropriate params — user SAM + password for auto-login; vault path / destination for File Copy.
 4. Log every auto-addition to the deviations log: `"Auto-added {plugin} on {machine} for {pattern}: {detail}"`.
 
 Surface auto-additions in the B.7 checkpoint summary so the user sees what was caught.
@@ -121,7 +122,7 @@ Four rules apply throughout plugin work — when adding, configuring, or auditin
 
 **Same-machine dep pairs are coupled.** When listing plugins on a machine, check each plugin's `isDependencyAdd` flag and `sameMachineDependencies` / `sameMachineDependents` arrays. A plugin with `isDependencyAdd: true` is auto-attached — the parent (in `sameMachineDependents`) owns ordering, configuration, and lifecycle; the dependent travels with it. Treat dep-pairs as a single unit on listings — describe them as "coupled," not duplicates. Never `_update` or `_reorder` a plugin where `isDependencyAdd: true`; target its parent instead. (Cross-machine deps via `crossMachineDependencies` are separate and behave normally.)
 
-**Plugin sequencing sanity.** When adding a plugin or auditing a machine's sequence, read each plugin's description and any `parentServerPlugins` from the catalog to determine prerequisites. Catalog metadata + prose are the source of truth — don't guess from plugin names. Common anti-patterns to watch for:
+**Plugin sequencing sanity.** When adding a plugin or auditing a machine's sequence, read each plugin's description from the catalog (`architect_plugin_catalog_list_full`) to determine prerequisites. Catalog metadata + prose are the source of truth — don't guess from plugin names. Common anti-patterns to watch for:
 
 - Domain-join AFTER auto-login of a domain user (login fails; user doesn't exist yet)
 - User-context plugins (Outlook, Mount Share, file-copy to user-profile paths like `C:\Users\<user>\`) BEFORE auto-login (user profile doesn't exist yet)
@@ -129,11 +130,11 @@ Four rules apply throughout plugin work — when adding, configuring, or auditin
 
 Place new plugins AFTER their prerequisites. The B.6 File-Copy-after-Auto-Login rule is a specific case of this discipline.
 
-**Run-order tooling.** Each plugin returns `position` (1..N dense, derived per machine) and `runOrderSequence` (raw int the FE displays). Use `position` as your working model. To reorder a whole machine: `architect_assigned_plugin_reorder({ machineId, orderedAppliedPluginIds })` — one atomic call, weaves in same-machine deps automatically (omit `isDependencyAdd: true` plugins from input). To insert a single plugin at a specific spot: `_add` then `_update` with the desired `runOrderSequence` (any unused integer; gaps survive — hub doesn't reindex on `_update` or Apply Plan).
+**Run-order tooling.** Each plugin returns `position` (1..N dense, derived per machine) and `runOrderSequence` (raw int the FE displays). Use `position` as your working model. To reorder a whole machine: `architect_assigned_plugin_reorder({ machine, orderedPlugins })` — one atomic call, weaves in same-machine deps automatically (omit `isDependencyAdd: true` plugins from input). To insert a single plugin at a specific spot: `_add` then `_update` with the desired `runOrderSequence` (any unused integer; gaps survive — hub doesn't reindex on `_update` or Apply Plan).
 
 ### B.7: Checkpoint
 - Run `architect_canvas_get_overview` to confirm machine and VLAN counts match the plan and to spot empty-plugin entities
-- Write diary entry: `diary_write` with type `MAJOR_MUTATION`, content summarizing machine counts, VLAN counts, deviations (including any orchestration plugins auto-added in B.6) and what remains
+- Write diary entry: `diary_write` with `entryType: major_mutation`, content summarizing machine counts, VLAN counts, deviations (including any orchestration plugins auto-added in B.6) and what remains
 - Present to user: "Scenario built. X machines across Y VLANs. Deviations from plan: [list]. Changes are staged as drafts."
 
 ## End of pipeline — final validate
@@ -169,9 +170,9 @@ Check before creating every resource. If a VLAN with the same name or a machine 
 
 | Phase Boundary | Diary Entry Type |
 |----------------|-----------------|
-| Build approved (startup step 5) | `USER_INTENT` or `USER_DECISION` — what is built and why, key decisions and constraints, what remains |
+| Build approved (startup step 5) | `user_intent` or `user_decision` — what is built and why, key decisions and constraints, what remains |
 | After Phase A | none — implementation.yml on disk marks it |
-| After Phase B | `MAJOR_MUTATION` — machine counts, VLAN counts, deviations, what remains |
+| After Phase B | `major_mutation` — machine counts, VLAN counts, deviations, what remains |
 
 These are the only two entries this flow writes; never log routine progress.
 
@@ -179,7 +180,7 @@ These are the only two entries this flow writes; never log routine progress.
 
 If partial build detected (via diary entries + implementation.yml on disk):
 
-1. Read the latest diary entries: the build entry holds the approved design; a `MAJOR_MUTATION` from this flow means Phase B finished
+1. Read the latest diary entries: the build entry holds the approved design; a `major_mutation` entry from this flow means Phase B finished
 2. Read implementation.yml for the expansion state
 3. Read canvas state via MCP to verify what actually exists
 4. Present to user: "Found a partial build — Phase A completed, Phase B not started. Resume from scenario build?"

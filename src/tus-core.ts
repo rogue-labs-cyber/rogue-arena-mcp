@@ -1,19 +1,28 @@
-import { Upload } from "tus-js-client";
+import { DetailedError, Upload } from "tus-js-client";
 import * as fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { AuthProvider } from "./auth.js";
 
-export const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MiB
-export const UPLOAD_BPS = 20 * 1024 * 1024; // 20 MB/s cap
+/**
+ * One PATCH per 8 MiB. The gateway buffers each chunk's body, so the upstream checks the bearer only once the whole
+ * chunk arrived: a chunk must reach it inside the bearer's remaining life, which REFRESH_BUFFER_SECONDS (240) keeps at
+ * 240 s or more. 8 MiB takes 67 s at 1 Mbit/s for one upload. Memory stays bounded whatever the chunk size: tus reads
+ * a path-backed source (fs.ReadStream with a path) as a stream per chunk and pipes it to the request.
+ */
+export const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MiB
+/** Ceiling on one upload's rate: 150 MB/s. */
+export const UPLOAD_BPS = 150 * 1000 * 1000;
 /**
  * The upload affinity header (the web client's own name). Every request of one upload carries the same affinity value,
  * so a resumed upload continues where it left off; a new upload carries a new one.
  */
 export const TUS_UPLOAD_AFFINITY_HEADER = "X-RA-Upload-Affinity";
 
-// Bumped from 5 → 8 to give three categories (deployment, plugin, architect)
-// slot headroom. Revisit if starvation repros in practice.
-export const MAX_CONCURRENT_TRANSFERS = 8;
+// The server's per-user limit on concurrent uploads. An upload the server refuses for capacity (429) waits for a slot
+// instead of failing.
+export const MAX_CONCURRENT_TRANSFERS = 10;
+/** How long an upload refused for capacity (429) waits before it asks again. */
+export const CAPACITY_RETRY_MS = 15_000;
 
 const TRANSFER_CLEANUP_MS = 300_000; // 5 min
 
@@ -32,7 +41,10 @@ export interface TransferState {
   startTime:        string;
   endTime?:         string;
   error?:           string;
+  /** Set while the server refuses the upload for capacity and it waits for a slot. */
+  waitingForSlot?:  string;
   _abortController?: AbortController;
+  _capacityRetry?:   NodeJS.Timeout;
   _tusUpload?:       Upload;
   _writeStream?:     fs.WriteStream;
 }
@@ -50,6 +62,9 @@ export function finishTransfer(
   if (error) state.error = error;
   state._abortController = undefined;
   state._tusUpload = undefined;
+  state.waitingForSlot = undefined;
+  if (state._capacityRetry) clearTimeout(state._capacityRetry);
+  state._capacityRetry = undefined;
   state._writeStream = undefined;
   // Cleanup only: it never keeps the process alive on its own.
   setTimeout(() => activeTransfers.delete(state.transferId), TRANSFER_CLEANUP_MS).unref();
@@ -102,6 +117,7 @@ export function serializeTransfer(state: TransferState): Record<string, unknown>
   if (state.totalBytes > 0) {
     result.progressPercent = Math.round((state.bytesTransferred / state.totalBytes) * 100);
   }
+  if (state.waitingForSlot) result.waitingForSlot = state.waitingForSlot;
   if (state.endTime) result.endTime = state.endTime;
   if (state.error) result.error = state.error;
   return result;
@@ -114,6 +130,8 @@ export interface StartTusUploadParams {
   tusMetadata:   Record<string, string>;
   targetKind:    TargetKind;
   targetId:      string;
+  /** How long a capacity refusal (429) waits before asking again; CAPACITY_RETRY_MS unless a test sets it. */
+  capacityRetryMs?: number;
 }
 
 export interface TusUploadHandle {
@@ -141,6 +159,7 @@ export interface TusUploadHandle {
  */
 export function startTusUpload(params: StartTusUploadParams): TusUploadHandle {
   const { endpoint, localFilePath, auth, tusMetadata, targetKind, targetId } = params;
+  const capacityRetryMs = params.capacityRetryMs ?? CAPACITY_RETRY_MS;
 
   const fileStats = fs.statSync(localFilePath);
   const fileName = String(tusMetadata.originalFileName ?? "unnamed");
@@ -205,6 +224,7 @@ export function startTusUpload(params: StartTusUploadParams): TusUploadHandle {
       }
     },
     onProgress: (bytesSent, bytesTotal) => {
+      state.waitingForSlot = undefined;
       state.bytesTransferred = bytesSent;
       if (bytesTotal > 0) {
         const pct = Math.floor((bytesSent / bytesTotal) * 100);
@@ -218,6 +238,7 @@ export function startTusUpload(params: StartTusUploadParams): TusUploadHandle {
       }
     },
     onSuccess: () => {
+      state.waitingForSlot = undefined;
       state.bytesTransferred = fileStats.size;
       console.error(
         `[rogue-arena-mcp] Upload complete [${transferId}]: ${fileName}`
@@ -225,10 +246,26 @@ export function startTusUpload(params: StartTusUploadParams): TusUploadHandle {
       finishTransfer(state, "completed");
     },
     onError: (err) => {
+      // The server is at its upload limit (Vaults answers 429 "Upload limit reached: n/m concurrent uploads active"):
+      // wait for a slot and ask again, for as long as the transfer is not cancelled.
+      if (err instanceof DetailedError && err.originalResponse?.getStatus() === 429 && state.status === "in_progress") {
+        state.waitingForSlot = err.originalResponse.getBody().trim() || "The server is at its upload limit";
+        console.error(`[rogue-arena-mcp] Upload [${transferId}] waits for a slot: ${state.waitingForSlot}`);
+        state._capacityRetry = setTimeout(() => {
+          state._capacityRetry = undefined;
+          if (state.status === "in_progress") upload.start();
+        }, capacityRetryMs);
+        return;
+      }
       console.error(
         `[rogue-arena-mcp] Upload failed [${transferId}]: ${err.message}`
       );
       finishTransfer(state, "failed", err.message);
+      // Retries are spent: end it on the server too, so the server does not hold it as running until its bytes
+      // expire. An upload the server already refused or discarded answers 404, and a finished one stays finished.
+      upload.abort(true).catch((abortErr: unknown) => {
+        console.error(`[rogue-arena-mcp] Could not cancel failed upload [${transferId}] on the server: ${String(abortErr)}`);
+      });
     },
   });
 
@@ -237,4 +274,57 @@ export function startTusUpload(params: StartTusUploadParams): TusUploadHandle {
   upload.start();
 
   return { transferId, fileName, totalBytes: fileStats.size };
+}
+
+/**
+ * The MCP stdio client ends this server by closing stdin, then SIGTERM 2 s later, then SIGKILL 2 s after that.
+ * Nobody can poll or resume an upload once the connection is gone, so cancel each unfinished one with TUS
+ * termination (what the cancel tools send) before exiting: otherwise the server holds it as running for hours.
+ */
+const SHUTDOWN_CANCEL_MS = 1_500;
+
+interface ConnectionEnd {
+  readonly stdin: NodeJS.EventEmitter;
+  readonly signals: NodeJS.EventEmitter;
+  readonly exit: (code: number) => void;
+}
+
+export function endUploadsWithTheConnection({ stdin, signals, exit }: ConnectionEnd): void {
+  let ending = false;
+  const end = (why: string) => {
+    if (ending) return;
+    ending = true;
+    cancelUnfinishedUploads(why)
+      .catch((err: unknown) => {
+        console.error(`[rogue-arena-mcp] Cancelling uploads at exit failed: ${String(err)}`);
+      })
+      .finally(() => exit(0));
+  };
+  stdin.once("end", () => end("the MCP connection closed"));
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    signals.once(signal, () => end(`the MCP server received ${signal}`));
+  }
+}
+
+async function cancelUnfinishedUploads(why: string): Promise<void> {
+  const cancels = [...activeTransfers.values()].flatMap((state) => {
+    const upload = state._tusUpload;
+    if (state.status !== "in_progress" || !upload) return [];
+    return [(async () => {
+      try {
+        await upload.abort(true);
+      } catch (err) {
+        console.error(`[rogue-arena-mcp] Could not cancel upload [${state.transferId}] on the server: ${String(err)}`);
+      }
+      finishTransfer(state, "cancelled", `Cancelled because ${why}`);
+    })()];
+  });
+  if (cancels.length === 0) return;
+  console.error(`[rogue-arena-mcp] Cancelling ${cancels.length} unfinished upload(s) because ${why}`);
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    Promise.allSettled(cancels),
+    new Promise<void>((resolve) => { timer = setTimeout(resolve, SHUTDOWN_CANCEL_MS); }),
+  ]);
+  clearTimeout(timer);
 }

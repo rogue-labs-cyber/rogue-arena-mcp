@@ -80,11 +80,11 @@ Runs the 8 deterministic precheck modules server-side via `architect_canvas_prec
 
 ### 1. Plugin Coupling & Run-Order
 
-This section narrows to **coupling** (orchestration plugins exist when their data-setup pattern exists) and **ordering** (run_order is correct when multiple plugins interact). Param completeness, plugin dependencies, and user-existence resolution live in §2.
+This section narrows to **coupling** (orchestration plugins exist when their data-setup pattern exists) and **ordering** (run order is correct when multiple plugins interact). Param completeness, plugin dependencies, and user-existence resolution live in §2.
 
 #### Setup
 
-Use the roster cached from §0. Call `architect_machine_get` per machine — use `discover_tools(search: "batch")` for 3+.
+Use the roster cached from §0. Call `architect_machine_get` with `machines` (up to 50 per call) and `includeBpContext: true`, which adds each machine's user assignments (`bpContext.assignments`).
 
 Plugin names are not hardcoded — resolve via `architect_plugin_catalog_search` at runtime to identify Auto Login, File Copy, Office install, Domain Join plugins for each OS family before walking the checklist.
 
@@ -92,7 +92,7 @@ Plugin names are not hardcoded — resolve via `architect_plugin_catalog_search`
 
 **For every machine on the canvas, walk this checklist top to bottom. Sampling is not validation — every machine, no exceptions.**
 
-1. **User assignment → Auto Login.** If `architect_machine_get` shows the machine has any user assignments (active *or* past profile in `assignedUsers`):
+1. **User assignment → Auto Login.** If `architect_machine_get` shows the machine has any user assignments (active *or* past profile in `bpContext.assignments`):
    - **Must have one Auto Login plugin instance per assigned user** — active users and past-profile users each require a profile-creating login run.
    - Each Auto Login's `username` + `password` params match the assigned user's `samAccountName` + `password`.
    - **Missing → `MISSING_AUTOLOGON_PLUGIN` (FAIL).** Ansible has no instruction to log the user in or seed the profile; the assignment is metadata-only.
@@ -109,19 +109,19 @@ Plugin names are not hardcoded — resolve via `architect_plugin_catalog_search`
    - If 4+ mappings target the same destination directory, **flag `FILECOPY_PER_FILE_MAPPING` (WARN).** Surface as: *"This File Copy plugin has N mappings to `{dir}`. Prefer mapping the folder contents over per-file entries — easier to maintain and edit-resistant."*
 
 5. **Run-order: File Copy is last.** If any File Copy plugin is present on the machine:
-   - Its `run_order` must exceed every other plugin's `run_order` on the same machine. Higher `run_order` = runs later.
+   - Its `position` must exceed every other plugin's `position` on the same machine. Higher `position` = runs later.
    - **Violation → `FILECOPY_RUN_ORDER_WRONG` (FAIL).** File Copy depends on filesystem destinations earlier plugins create (user profiles via Auto Login, app dirs via installers). If File Copy fires first, Ansible has nowhere to drop the files.
 
 6. **Run-order: Domain Join precedes Auto Login (domain user case).** If both Domain Join and Auto Login are present on the machine AND Auto Login `username` resolves to a domain user (matches a DC's `CreateUsers` or has `DOMAIN\user` form):
-   - Domain Join `run_order` < Auto Login `run_order`.
+   - Domain Join `position` < Auto Login `position`.
    - **Violation → `DOMAINJOIN_RUN_ORDER_WRONG` (FAIL).** Auto Login as a domain user before the machine has joined the domain fails to authenticate.
 
 7. **User-context plugins after Auto Login.** If any user-context plugin is present on the machine — Outlook setup, Mount Share targeting a user-profile path, applications that initialize per-user state, or file operations referencing `C:\Users\<user>\` / `/home/<user>/` paths:
-   - The plugin's `run_order` must exceed the Auto Login's `run_order` for the assigned user.
+   - The plugin's `position` must exceed the Auto Login's `position` for the assigned user.
    - **Violation → `USER_CONTEXT_RUN_ORDER_WRONG` (FAIL).** User-context operations require the profile to exist; Auto Login creates it. Identify candidates via plugin description (look for "user profile", "logged-in user", "current user").
 
 8. **Permission grants after user creation.** If a permission-grant plugin is present (Add to Local Administrators, Grant Folder Permissions, etc.) and its target SAM is created elsewhere on the machine (local user creation script, AD user creation):
-   - The grant plugin's `run_order` must exceed the user-creation plugin's `run_order`.
+   - The grant plugin's `position` must exceed the user-creation plugin's `position`.
    - **Violation → `PERMISSION_BEFORE_USER` (FAIL).** Granting permissions to a non-existent SAM fails or has no effect.
 
 9. **Path-OS coherence.** For each plugin param value (`string`, `stringBlock`, `csv`) that looks like a filesystem path:
@@ -129,7 +129,7 @@ Plugin names are not hardcoded — resolve via `architect_plugin_catalog_search`
    - Otherwise: Windows machines expect Windows-style paths (drive letters `C:\...`, UNC `\\server\share`); Linux machines expect POSIX paths (`/etc/`, `/var/`, `/home/`, etc.). Skip Jinja templates (`{{ }}`, `${ }`, `%VAR%`), relative paths, and cross-platform UNC mounts.
    - **Mismatch → `PATH_OS_MISMATCH` (WARN).** Promote to FAIL when the path is in a File Copy `destination` mapping (deterministic break).
 
-10. **General sequencing principle.** Beyond the specific checks above, walk the machine's plugins by `run_order`. For each plugin, read its description and any `parentServerPlugins` from the catalog to identify prerequisites. If any prerequisite plugin runs AFTER its dependent on the same machine, flag `SEQUENCE_VIOLATION` (FAIL if the deploy or runtime would break; WARN if degraded but functional). Catalog metadata + prose are the source of truth — don't infer prerequisites from plugin names alone.
+10. **General sequencing principle.** Beyond the specific checks above, walk the machine's plugins by `position`. For each plugin, read its description from the catalog to identify prerequisites. If any prerequisite plugin runs AFTER its dependent on the same machine, flag `SEQUENCE_VIOLATION` (FAIL if the deploy or runtime would break; WARN if degraded but functional). Catalog metadata + prose are the source of truth — don't infer prerequisites from plugin names alone.
 
 #### Coverage discipline
 
@@ -172,7 +172,7 @@ Cross-machine deps:       {declared}/{trust-pair}/{param-IP} edges evaluated
 
 Any `n < total` is a coverage failure — note explicitly and walk the missing entities before finalizing the section.
 
-Use draft nodeIds throughout (e.g., `vlan-corp`, `machine-corp-dc01`).
+Name machines, VLANs and plugins by their names throughout; a tool takes a name or an id.
 
 ### 3. Realism Grade
 
@@ -294,7 +294,7 @@ Map check verdicts to four severities. Internal check codes (FAIL/WARN) keep the
 | MED | (precheck warning) | WS01 | Required param `Hostname` is empty | Fill Hostname via architect_assigned_plugin_set_params |
 
 ## Section 1 — Plugin Coupling & Run-Order
-*Verifies orchestration plugins exist where data setup happens, plugin sequencing matches prerequisites, and run_order is correct for plugins that interact.*
+*Verifies orchestration plugins exist where data setup happens, plugin sequencing matches prerequisites, and run order is correct for plugins that interact.*
 
 ✓ No findings.
 
@@ -303,7 +303,7 @@ Map check verdicts to four severities. Internal check codes (FAIL/WARN) keep the
 | Severity | Code | Machine | Finding | Suggested Fix |
 |---|---|---|---|---|
 | CRIT | MISSING_AUTOLOGON_PLUGIN | WS01 | User `jsmith` assigned but no Auto Login plugin | Add Auto Login plugin matching machine OS |
-| HIGH | FILECOPY_RUN_ORDER_WRONG | WS01 | File Copy runs before Auto Login (run_order 5 vs 12) | Set File Copy run_order > 12 |
+| HIGH | FILECOPY_RUN_ORDER_WRONG | WS01 | File Copy runs before Auto Login (position 5 vs 12) | Move File Copy after position 12 (`architect_assigned_plugin_reorder`) |
 
 ## Section 2 — Infrastructure Correctness
 *Runs the 17 infrastructure checks defined in `refs/infrastructure-checks.md` — IP conflicts, samAccountName validity, AD structure, VLAN topology, cross-machine dep paths, etc.*
@@ -391,9 +391,9 @@ Top 3 fixes (if NO): {ranked list of highest-severity findings with one-line fix
 
 ## Constraints
 
-- **Read-only.** Tool calls are limited to: `architect_canvas_get_overview`, `architect_canvas_get_context`, `architect_canvas_get_projected_state`, `architect_canvas_get_budget`, `architect_canvas_search`, `architect_canvas_global_search`, `architect_canvas_precheck`, `architect_vlan_list`, `architect_vlan_get`, `architect_machine_list`, `architect_machine_get`, `architect_machine_list_files`, `architect_assigned_plugin_get`, `architect_assigned_plugin_get_param`, `architect_files_get_json`, `architect_files_get_seeding_context`, `architect_files_get_type_schema`, `architect_files_list_counts`, `architect_files_list_types`, `architect_files_search_content`, `architect_forest_get_events`, `architect_forest_get_domain_trusts`, `architect_plugin_catalog_*` (search, list_full, list_templates, get_example), `discover_tools`, and `rogue_set_canvas`, `architect_canvas_list`, `architect_canvas_list_team` (standalone mode only). No mutations during the audit; the one write is `architect_canvas_apply_plan`, under After the Verdict.
+- **Read-only.** Tool calls are limited to: `architect_canvas_get_overview`, `architect_canvas_get_context`, `architect_canvas_get_projected_state`, `architect_canvas_get_budget`, `architect_canvas_search`, `architect_canvas_global_search`, `architect_canvas_precheck`, `architect_vlan_list`, `architect_vlan_get`, `architect_machine_list`, `architect_machine_get`, `architect_machine_list_files`, `architect_assigned_plugin_get`, `architect_assigned_plugin_get_param`, `architect_files_get_json`, `architect_files_get_seeding_context`, `architect_files_list_counts`, `architect_files_search_content`, `architect_forest_get_events`, `architect_forest_get_domain_trusts`, `architect_plugin_catalog_*` (search, list_full, list_templates, get_example), `discover_tools`, and `rogue_set_canvas`, `architect_canvas_list`, `architect_canvas_list_team` (standalone mode only). No mutations during the audit; the one write is `architect_canvas_apply_plan`, under After the Verdict.
 - **No clarifying questions before running.** Announce, then execute. Questions are acceptable mid-report only when a tool call returns an ambiguous result that blocks classification.
-- **Use draft nodeIds**, not canvas UUIDs.
+- **Use entity names** in findings and calls; a tool takes a name or an id.
 - **Canvas-only.** YMLs are inputs to the build; canvas is the audit subject. This skill does not read scenario YMLs from disk — every check resolves against canvas state via MCP tools.
 - **Every finding carries an error code + classification + remediation.** No prose-only verdicts.
 - **`architect_canvas_get_overview` failure blocks everything** — report and stop. Individual entity failures produce `WARN (UNVERIFIED)` for the affected check; the audit continues.

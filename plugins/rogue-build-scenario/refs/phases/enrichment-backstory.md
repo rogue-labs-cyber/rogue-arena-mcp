@@ -1,6 +1,6 @@
 # Enrichment: Backstory Phase — Reference Doc
 
-> **Staging:** VLAN and machine backstories are staged per `refs/shared-rules.md`. Read the `architect_vlan_manage_backstory` description (path `staging/vlan-{vlanId}/backstory/`, named-section `events.json`) and `architect_machine_manage_backstory` description (path `staging/machine-{machineId}/backstory/`, named sections `workplace-events.json` + `workplace-relationships.json`). Per-user backstories use operation `set_backstory`; incremental operations (`add_event`, `add_relationship`) are NOT staged. The size-guard is 4 KB.
+> **Staging:** VLAN and machine backstories are staged per `refs/shared-rules.md`: a VLAN's under `staging/vlan-{vlan}/backstory/` (named section `events.json`), a user's under `staging/machine-{machine}/backstory/` (named sections `workplace-events.json` + `workplace-relationships.json`). A whole per-user backstory (`bpData`) is staged; a single added `event` or `relationship` is NOT staged. Each tool takes a `bpData` of at most 512,000 bytes as JSON.
 
 > **For:** flow-implement Phase B (enrichment step — backstory)
 > **Do not add:** persona blocks, trigger phrases, user interaction framing
@@ -9,14 +9,14 @@ Backstory is the narrative foundation the rest of enrichment builds on. It estab
 
 ## Shared VLAN Events
 
-`architect_vlan_manage_backstory` with `operation: "set_events"` per VLAN establishes company-wide and VLAN-specific events (breaches, mergers, reorgs, product launches, audits, incidents, personnel changes). These anchor downstream relationships and file generation.
+`architect_vlan_manage_backstory` with `bpData.sharedEventPool` per VLAN establishes company-wide and VLAN-specific events (breaches, mergers, reorgs, product launches, audits, incidents, personnel changes). These anchor downstream relationships and file generation.
 
 ## Individual Workplace Events
 
-Two-phase generation per VLAN:
+Two phases per VLAN:
 
-1. **Shared events** — `architect_machine_manage_backstory` with `operation: 'generate_shared_events'` per VLAN to establish cross-machine interaction context.
-2. **Per-user events** — `architect_machine_manage_backstory` with `operation: 'generate'` per assigned user, threading user-specific context (role, workStyle, hobbies, department, recent workplace events) into the `prompt` field at 100+ characters.
+1. **Shared events** — the VLAN's shared events above are the cross-machine interaction context. Set them before any user's events.
+2. **Per-user events** — `architect_machine_manage_backstory` per assigned user with `machine`, `userSamAccountName` and `bpData` (`workplaceEvents`, `workplaceRelationships`), written from that user's own context (role, workStyle, hobbies, department, recent workplace events). `bpData` replaces the user's whole backstory.
 
 ## Event Categories
 
@@ -24,17 +24,16 @@ See [shared-rules.md -- Backstory Event Categories](../shared-rules.md#backstory
 
 ## Machine Notes
 
-`architect_machine_update` with `aiNotes: "<annotation text>"` captures scenario intent and flow annotations — WHY a machine is configured a certain way. Example: `architect_machine_update({ machineId, aiNotes: "This DC was the original domain controller before the merger; its GPOs still reflect the pre-acquisition policy set." })`
+`architect_machine_update` with `aiNotes: "<annotation text>"` captures scenario intent and flow annotations — WHY a machine is configured a certain way. Example: `architect_machine_update({ machine, aiNotes: "This DC was the original domain controller before the merger; its GPOs still reflect the pre-acquisition policy set." })`
 
 ## Checklist
 
-1. Read company context — `architect_canvas_get_context` for company profile, departments, characters.
-2. Read forest topology — `architect_forest_get_events` for domain relationships and existing events.
-3. Shared VLAN events — `architect_vlan_manage_backstory(operation: "set_events")` per VLAN.
-4. Shared machine events — `architect_machine_manage_backstory(operation: 'generate_shared_events')` per VLAN.
-5. Individual events — `architect_machine_manage_backstory(operation: 'generate')` per assigned user with 100+ character prompts.
-6. Machine notes — `architect_machine_update` with `aiNotes: "<annotation>"` for key machines with scenario intent.
-7. Verify shared events exist for every VLAN before proceeding to other enrichment sections.
+1. Read the company — `architect_forest_get_events` (its `world`): the organization, its departments and dated history, and the roster.
+2. Read forest topology — the same answer's `domainBackstories` and `crossDomainRelationships`.
+3. Shared VLAN events — `architect_vlan_manage_backstory({ vlan, bpData: { sharedEventPool } })` per VLAN.
+4. Individual events — `architect_machine_manage_backstory({ machine, userSamAccountName, bpData: { workplaceEvents, workplaceRelationships } })` per assigned user, written from the user's own context and the VLAN's shared events.
+5. Machine notes — `architect_machine_update` with `aiNotes: "<annotation>"` for key machines with scenario intent.
+6. Verify shared events exist for every VLAN before proceeding to other enrichment sections.
 
 ## Constraints
 

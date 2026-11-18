@@ -7,11 +7,11 @@
 ## 1. Tool Categories
 
 Architect MCP tools are grouped by prefix. Use `discover_tools` to see full descriptions.
-- **Canvas tools** (`architect_canvas_*`): Read/set company context, check completeness and budget
+- **Canvas tools** (`architect_canvas_*`): Read/set the settings the lab is built to (security posture, character style, size limits), check completeness and budget
 - **VLAN tools** (`architect_vlan_*`): Create/list/wire VLANs, manage backstory and connections
 - **Machine tools** (`architect_machine_*`): Create/configure machines, assign users, set notes
 - **Plugin tools** (`architect_plugin_catalog_*` + `architect_assigned_plugin_*`): Search catalog, assign and configure plugins
-- **Forest tools** (`architect_forest_*`): Manage domain topology, events, trusts
+- **Forest tools** (`architect_forest_*`): The company (the world record: organization and its dated history, story clock, roster, shared events), each domain's backstory and relationships, trusts
 - **File tools** (`architect_files_*`): Seed realistic workplace files on machines
 - **Deploy tools** (`architect_deploy_*`): Read-only deployment status and logs
 - **Apply and build tools** (`architect_canvas_apply_plan`, `architect_canvas_start_build`, `architect_deployment_preview_redeploy`, `architect_deployment_redeploy`, `architect_canvas_remove_build`): apply staged changes and run Architect builds (see section 3)
@@ -28,7 +28,9 @@ Read canvas state with `architect_canvas_get_overview` before any mutation to un
 
 ## 3. Draft / Apply Plan Lifecycle
 
-All mutations via MCP tools land in DRAFT state. Nothing is live until the plan is applied. The backend returns draft `nodeId` values for every created entity — use these nodeIds for all subsequent tool calls, never raw canvas UUIDs.
+All mutations via MCP tools land in DRAFT state. Nothing is live until the plan is applied. Every write answers the entity's `name` and `id`; a later call names a machine, network or applied plugin by either.
+
+An answer leads with the hub's notes when it has any. **Not used** lists fields the tool left out, each with the nearest field it does take: fix the name and send the call again. **Nothing was changed** means a write saved nothing. A refused call adds a **Hint** (the fix) and the **Fields** at fault, each with what was expected and what was sent.
 
 Describe results as "staged," "queued," or "drafted" — never "deployed," "live," or "running." Drafts become real infrastructure only after the plan is applied and a build runs.
 
@@ -63,13 +65,13 @@ Workflow: (1) Install plugin via `architect_assigned_plugin_add`, (2) call `arch
 
 DISTINCT from `architect_plugin_catalog_get_example` — that tool returns plugin USAGE examples (param patterns + sibling plugins + machine context from real scenarios). `architect_plugin_catalog_get_addon_config_sample` returns the CONFIG content the plugin operates on. Use `_get_example` to learn how to wire a plugin into a machine; use `_get_addon_config_sample` to learn what to put inside one of its `stringBlock` params.
 
-For DC CSV params (CreateUsers, CreateOUs, CreateGroups): the catalog returns exact header schemas via `ifCSVListOfHeaderStringValues`. Use those headers verbatim — invented headers fail silently. CSV values are passed as raw strings (headers + rows, no code fences). Samples typically don't cover DC CSVs — those are scenario-identity, not runtime config.
+For DC CSV params (CreateUsers, CreateOUs, CreateGroups): `architect_plugin_catalog_list_full` returns each parameter's exact headers as `csvHeaders`. Use those headers verbatim — invented headers fail silently. CSV values are passed as raw strings (headers + rows, no code fences). Samples typically don't cover DC CSVs — those are scenario-identity, not runtime config.
 
-Use `architect_plugin_catalog_search` to find plugins by name or category (`addonConfigSampleCount` per result tells you upfront which plugins ship curated content). Stop searching after 3 catalog queries for the same plugin type — if it is not in the catalog, it does not exist.
+Use `architect_plugin_catalog_search` to find plugins by name or category; `architect_plugin_catalog_list_full` on the candidates' `pluginIds` shows which ship curated content (`addonConfigSamples`). Stop searching after 3 catalog queries for the same plugin type — if it is not in the catalog, it does not exist.
 
 ## 6. Account Type Separation
 
-Regular user accounts (`accountType: "regular"`) go on workstations ONLY with `hasAdminAccess: false`. Admin accounts (`accountType: "admin"`, `.sa` suffix, e.g. `john.smith.sa`) go on servers and DCs ONLY with `hasAdminAccess: true`. Never mix account types on the wrong machine role.
+Regular user accounts go on workstations ONLY, assigned with `isAdmin: false`. Admin accounts (`.sa` suffix, e.g. `john.smith.sa`) go on servers and DCs ONLY, assigned with `isAdmin: true`. Never mix account types on the wrong machine role.
 
 Each workstation gets exactly ONE primary user. Each user gets at most ONE primary workstation. Multiple admins can share server access. A single person can hold both a regular workstation account and an admin server account — they are separate accounts on separate machines.
 
@@ -77,25 +79,25 @@ Username patterns: primary `firstname.lastname`, admin `firstname.lastname.sa` (
 
 Past admin profiles on workstations are allowed for forensic scenarios (stale scripts, old log files referencing former admins), but current active assignments must follow the separation rule.
 
-## 7. set_context REPLACE Semantics
+## 7. Settings and the World Record
 
-`architect_canvas_set_context` uses REPLACE semantics — each call overwrites ALL previous context entirely. A second call destroys the first call's data.
+`architect_canvas_set_context` saves only the settings the lab is built to: `securityPosture`, `characterStyle`, `allowedFranchises` and `constraints` (`minMachines`, `maxMachines`, `minUsers`, `maxUsers`, `minDomains`, `maxDomains`). Every call replaces all four. **Safe update workflow:** read them with `architect_canvas_get_context` (its `profile`), change what the user asked for, and send all four back in one call.
 
-**Safe update workflow:** (1) Read existing context via `architect_canvas_get_context`, (2) merge your changes into the existing payload, (3) write the merged result in a single `architect_canvas_set_context` call.
-
-The `bpData` payload contains: `companyProfile`, `leadership`, and `technicalInfra`. Omitting any section from the call deletes it. Always include all three sections, even unchanged ones.
-
-The `prompt` field is optional metadata for the audit trail. Auto-stored artifacts (`company_context`, `user_profiles`) are derived from bpData — no separate storage calls needed.
+The company itself is the world record: write it with `architect_forest_manage`, read it with `architect_forest_get_events` (its `world`). One call may carry several keys, saved together or not at all:
+- `world`: `organization` (`name`, `business`, `sector`, `sites`, `departments` with each `head`'s roster account, `entities` for every other named organization, `products`, `culture`, `situation`, `founded`, the one dated `history`, and `conventions` with the one `mailDomain` ending in `.local`) and `storyClock` (`today`: nothing is dated after it). Each part you send replaces that part whole, so read it first and send it back whole with your change.
+- `addPeople`: roster people by `account` (`name`, `kind`, `title`, `department`, `manager`, `mail`; the executives who run the company with `executive: true`). One with the same account is replaced.
+- `generateStaff`: the background staff from counts per department; it replaces the generated tier whole.
+- `addSharedEvents`: dated shared events by `id`, with their exact `facts` and the documents or mail behind them (`artifacts`).
 
 ## 8. Zone Classification & IP Addressing
 
 See `refs/shared-rules.md` (VLAN Zone Classification, IP Addressing Strategy) for the full zone/IP reference. Key freeform rules:
-- Zones are set at VLAN creation and cannot be changed later
+- A VLAN's zone is written into its `aiNotes` at creation; enrichment does not change it
 - Isolated VLANs require explicit firewall rules for any connectivity
 - Gateway at `.1`, static `.2`-`.49` (DCs at `.10`-`.12`), DHCP `.50`-`.254`
 - Firewall policy values: `allow_all` or `block_all` only (no `allow`/`deny`/`block`/`permit`). Protocol: `tcp`, `udp`, or `both` only
-- Firewall priority bands: 1-100 critical allow, 101-500 standard allow, 501-900 specific deny, 901-999 catch-all
-- If `manualRuleCount > 0` on a VLAN pair, add new rules alongside existing ones and preserve existing default policy
+- Firewall rules apply in the order sent (first match wins, then `defaultPolicy`): critical allows first, then standard allows, then specific denies, then catch-alls
+- `set_firewall_rules` replaces a direction's whole rule set: when a pair already has rules (`architect_vlan_get` `connections`, with `ruleCount`), send them back with the new ones and keep the existing default policy
 
 ## 9. Naming Conventions
 
@@ -125,13 +127,13 @@ See `refs/shared-rules.md` (Content Appropriateness). Professional cybersecurity
 
 See `refs/shared-rules.md` (Security Posture, Domain Relationship Vocabularies) for full tables.
 
-### Forest Event Generation
+### Company History and Domain Stories
 
-Use `architect_forest_manage(operation: "generate")` for fresh events (replaces all). Use `operation: "update"` to append — not interchangeable. Events form causality chains referencing prior events by ID. Target count: `max(3, numberOfDomains * 2)`. Descriptions must name leadership and quantify impact (dollars, records, headcounts). Internal process: CHRONICLE -> PORTRAITS -> AD MATERIALIZATION.
+The company's events are its one dated history: `world.organization.history`, entries of `date` and `text`, sent with the rest of the organization (`architect_forest_manage` replaces the organization whole). Each entry names the executives involved and quantifies the impact (dollars, records, headcounts), and later entries follow from earlier ones. Target length: `max(3, numberOfDomains * 2)` entries. Each domain's own story goes in `addBackstories` (`domainFQDN`, `uniqueCharacteristics`, `primaryFunction`, `culturalNotes`) and the ties between domains in `addRelationships`; `updateBackstories` and `updateRelationships` change existing ones. The payload keys say the job; there is no operation field. Internal process: CHRONICLE (history) -> PORTRAITS (backstories) -> AD MATERIALIZATION (the OUs and groups the DC's CreateOUs and CreateGroups params create).
 
 ### User Assignment Richness
 
-`architect_machine_manage_user` bpData must fill every field — identity, personal background (bio, hobbies, pets, personality, entertainment), work behavior (technical skill, filing habits, work style, communication style), and AD placement (OU path, groups, manager). Sparse profiles produce empty file seeding downstream. Pull values from company context and DC CreateUsers CSV params.
+`architect_machine_assign_user` (`machine`, its name or id, and `account`, the account name, then the profile fields at its top level) must fill every field — sign-in (`isActivelyLoggedIn`, `isAdmin`), identity (`title`, `department`), personal background (`bio`, `age`, `gender`, `significantLifeEvents`, `pets`, `personalityTraits`, `hobbies`, `favoriteEntertainment`), and work behavior (`technicalSkill`, `filingHabits`, `workStyle`, `communicationStyle`, `employeeType`). It takes no directory placement: the OU path, groups and manager live in the DC's CreateUsers CSV and on the roster (`architect_forest_manage` `addPeople`). Sparse profiles produce empty file seeding downstream. Pull values from company context and DC CreateUsers CSV params.
 
 ### Autologon Plugin Requirement
 
@@ -139,7 +141,7 @@ Every workstation with a primary user needs an autologon plugin. Without it, the
 
 ### Backstory Event Ordering
 
-Backstory enrichment follows a strict sequence: (1) shared VLAN events via `architect_vlan_manage_backstory`, (2) shared machine events via `architect_machine_manage_backstory(operation: 'generate_shared_events')`, (3) per-user events via `architect_machine_manage_backstory(operation: 'generate')` with 100+ character prompts. Later phases (relationships, files) depend on these existing first.
+Backstory enrichment follows a strict sequence: (1) shared VLAN events via `architect_vlan_manage_backstory` (`bpData.sharedEventPool` per VLAN), (2) per-user events and relationships via `architect_machine_manage_backstory` (`machine`, `userSamAccountName`, and `bpData` with `workplaceEvents` and `workplaceRelationships`, written from the user's own context and the VLAN's shared events). Later phases (relationships, files) depend on these existing first.
 
 ### File Seeding Targets
 
@@ -150,18 +152,18 @@ Backstory enrichment follows a strict sequence: (1) shared VLAN events via `arch
 | Domain Controller | 5-10 |
 | Local / utility | 3+ |
 
-Every workstation manifest includes 1-2 email artifacts (OST, PST, or saved .eml). Files must span all 4 date-decay tiers (current 0-7 days, recent 8-30, older 31-90, archive 91-365) with at least 1 file older than 180 days. Topic fields: 50+ characters with WHO/WHAT/WHY/WHEN.
+Every workstation manifest includes 1-2 email artifacts (OST, PST, or saved .eml). Files must span all 4 date-decay tiers (current 0-7 days, recent 8-30, older 31-90, archive 91-365) with at least 1 file older than 180 days, counted back from the story clock's `today` (a file's `modifiedAt`). Each file's `summary`: 50+ characters with WHO/WHAT/WHY/WHEN.
 
 ### Common Operations Quick Reference
 
-- **Add a Windows DC:** `architect_machine_add` (role: domain_controller, OS: WindowsServer2022) -> `architect_assigned_plugin_add` (ad-domain-controller) -> `architect_plugin_catalog_list_full` -> `architect_assigned_plugin_set_params` (CreateUsers CSV, CreateOUs CSV, CreateGroups CSV)
-- **Wire two VLANs:** `architect_vlan_manage_connection` with trust level, firewall rules, and default policy. AD-trusting pairs need rules for ports 88, 389, 636, 445, 53, 3268, 3269.
+- **Add a Windows DC:** `architect_machine_add` (`role: domain_controller`, `baseTemplateId`: a Windows Server 2022 template's name or id from `architect_plugin_catalog_list_templates`) -> `architect_assigned_plugin_add` (ad-domain-controller) -> `architect_plugin_catalog_list_full` -> `architect_assigned_plugin_set_params` (CreateUsers CSV, CreateOUs CSV, CreateGroups CSV)
+- **Wire two VLANs:** `architect_vlan_manage_connection` with `operation: set_firewall_rules`, `sourceVlan`, `targetVlan` and `firewallRules` (`defaultPolicy`, `rules`), once per direction; it takes no trust level. AD-trusting pairs take `defaultPolicy: allow_all` with no rules (the AD trust note in `refs/shared-rules.md`).
 - **Check what's missing:** `architect_canvas_get_overview` returns the full canvas state — empty plugin slots, machines without roles, and VLANs without machines all surface here.
 - **Swap a plugin:** `architect_assigned_plugin_delete` the old one, then `architect_assigned_plugin_add` the new one. Re-discover params via catalog before configuring.
 - **Add machine notes:** `architect_machine_update` with `aiNotes` field containing freeform text describing the machine's role in the learning flow or notable configuration details.
-- **Search for anything:** `architect_canvas_global_search` searches across all entity types — users, machines, plugins, params. Use field hints like `["username", "displayname"]` to narrow results.
-- **Modify company context:** Read via `architect_canvas_get_context`, merge changes, write back via `architect_canvas_set_context` (single call, all sections included).
-- **Add a user to a workstation:** `architect_machine_manage_user` with full bpData (every field filled). Then install autologon plugin with the user's credentials.
-- **Seed files on a machine:** `architect_files_get_seeding_context` first to get user/machine context -> `architect_files_create` per file entry (batch up to 20 per call).
-- **Check AD data:** DC plugin params hold the source of truth — use `architect_assigned_plugin_get_param` for CreateUsers/CreateOUs/CreateGroups, or `architect_canvas_global_search` with field hints.
+- **Search for anything:** `architect_canvas_global_search` with `searchTerms` (short keywords such as `["Vader", "CEO"]`, each matched on its own) searches plugin param values, machine notes, user assignments and VLAN notes in one call.
+- **Modify the company:** read the world record with `architect_forest_get_events`, change it, and write it back with `architect_forest_manage` (`world` parts whole; people by `addPeople`). The settings go through `architect_canvas_set_context`, all four in one call.
+- **Add a user to a workstation:** `architect_machine_assign_user` with `machine`, `account` and every profile field filled. Then install autologon plugin with the user's credentials.
+- **Seed files on a machine:** the world record first (`architect_forest_manage` `world` with the organization and story clock, `addPeople` with the machine's accounts), then `architect_files_get_seeding_context` for user/machine context (write nothing for a machine whose `storyReady` is false) -> one call per file to the write tool for its kind (`architect_files_write_text`, `architect_files_write_log`, `architect_files_write_document`, `architect_files_write_sheet`, `architect_files_write_deck` or `architect_files_write_mail`). Each tool's schema is that kind's whole shape, and the file name's ending gives the format.
+- **Check AD data:** DC plugin params hold the source of truth — use `architect_assigned_plugin_get_param` for CreateUsers/CreateOUs/CreateGroups, or `architect_canvas_global_search` with an account or group name.
 - **Validate infrastructure:** Read-only audit via `architect_canvas_get_overview` and per-machine `architect_machine_get`. Hand off to `architect-final-validate` for the full pre-deploy audit. Never mutates canvas state.

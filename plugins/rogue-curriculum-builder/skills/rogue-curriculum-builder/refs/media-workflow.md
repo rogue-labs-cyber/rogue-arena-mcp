@@ -8,25 +8,26 @@ If the library doesn't have what you need, use `curriculum_upload_media` to uplo
 
 ## Inserting Media Blocks
 
-After finding media via search/browse, use the returned `id` in the appropriate block type:
+After finding media via search/browse, use the returned `id` in the appropriate block type. Each object below is one item of a block tool's `blocks` list (see `block-types.md`), with its own short `id`:
 
 ### Image
 ```json
 {
+  "id": "img1",
   "type": "image",
   "imageId": "<media-id>",
   "alt": "Description of image",
   "caption": "Optional caption",
   "widthPct": 80,
-  "alignment": "CENTER"
+  "alignment": "center"
 }
 ```
 
 ### Video
 ```json
 {
+  "id": "vid1",
   "type": "video",
-  "provider": "bunny",
   "videoId": "<media-id>",
   "title": "Video title"
 }
@@ -35,6 +36,7 @@ After finding media via search/browse, use the returned `id` in the appropriate 
 ### PDF
 ```json
 {
+  "id": "pdf1",
   "type": "pdf",
   "pdfId": "<media-id>",
   "title": "Document title",

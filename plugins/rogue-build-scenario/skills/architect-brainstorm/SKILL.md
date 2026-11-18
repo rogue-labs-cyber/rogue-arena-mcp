@@ -84,7 +84,7 @@ After confirmation, Read `refs/flow-cast.md` and continue.
 
 On pass, **stop** and ask:
 
-> "YML checks out. Next step **writes to the live canvas** (`set_context` replaces company context). Build it now?"
+> "YML checks out. Next step **writes to the live canvas** (it writes the company and replaces the lab's settings). Build it now?"
 
 - **No** → stop. Files stay on disk. User can resume later.
 - **Yes** → Read `refs/flow-implement.md` and run it.

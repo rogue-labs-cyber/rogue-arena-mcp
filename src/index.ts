@@ -15,12 +15,14 @@ import { loginCommand, resolveProfile } from "./profile.js";
 import { createCredentialStore } from "./credential-store.js";
 import { Session } from "./session.js";
 import { callCanvasCategoryTool } from "./canvas-tool-call.js";
+import { toolAnswerNoteContent, toolAnswerResponse } from "./tool-answer.js";
 import {
-  META_TOOLS, handleMetaTool, isMetaTool, setDiscoverableTools, setAlwaysTools, setToolPromotion,
+  AUTH_STATUS_TOOL, META_TOOLS, handleMetaTool, isMetaTool, setDiscoverableTools, setAlwaysTools, setToolPromotion,
   setUnavailableToolFamilies, unavailableToolFamilies, unavailableFamilyForTool, describeUnavailableFamily, authStatusArgsRefusal,
   type ServerIdentity, type UnavailableToolFamily,
 } from "./meta-tools.js";
 import { LOCAL_TOOLS, isLocalTool, handleLocalTool } from "./local-tools.js";
+import { endUploadsWithTheConnection } from "./tus-core.js";
 
 // ── Screenshot helper ───────────────────────────────────────────────
 type McpContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
@@ -162,17 +164,6 @@ async function createAuthProvider(): Promise<AuthProvider | null> {
 }
 
 // ── Auth status tool (always registered) ────────────────────────────
-const AUTH_STATUS_TOOL = {
-  name: "rogue_auth_status",
-  description:
-    "Check the Rogue Arena MCP authentication status. Call this FIRST if other rogue_* tools are missing or returning auth errors. Reports whether auth is healthy, expired, or missing, and tells you exactly what the user needs to do to fix it.",
-  inputSchema: {
-    type: "object" as const,
-    properties: {},
-    additionalProperties: false,
-  },
-};
-
 function buildAuthStatusResponse(): { content: Array<{ type: "text"; text: string }>; isError?: boolean } {
   switch (currentAuthState.status) {
     case "ok": {
@@ -492,7 +483,7 @@ async function main() {
 
     if (isLocalTool(name)) {
       try {
-        return await handleLocalTool(name, callArgs, auth, hub);
+        return await handleLocalTool(name, callArgs, auth, hub, session);
       } catch (err) {
         return {
           content: [
@@ -515,28 +506,7 @@ async function main() {
     const toolSchema = allCallableTools.get(name);
     if (toolSchema && toolSchema.category === "PLUGIN_DEV") {
       try {
-        const result = await hub.executePluginDevTool(name, callArgs);
-
-        if (!result.success) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Tool ${name} failed: ${result.error}`,
-              },
-            ],
-            isError: true,
-          };
-        }
-
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result.data, null, 2),
-            },
-          ],
-        };
+        return toolAnswerResponse(name, await hub.executePluginDevTool(name, callArgs));
       } catch (err) {
         return {
           content: [
@@ -554,30 +524,12 @@ async function main() {
     if (toolSchema && toolSchema.category === "ACTIVE_DEPLOYMENT") {
       try {
         const result = await hub.executeActiveDeploymentTool(name, callArgs);
-
-        if (!result.success) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Tool ${name} failed: ${result.error}`,
-              },
-            ],
-            isError: true,
-          };
-        }
+        if (!result.success) return toolAnswerResponse(name, result);
 
         const screenshotResponse = await tryBuildScreenshotResponse(name, result.data);
-        if (screenshotResponse) return screenshotResponse;
+        if (screenshotResponse) return { content: [...toolAnswerNoteContent(result), ...screenshotResponse.content] };
 
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result.data, null, 2),
-            },
-          ],
-        };
+        return toolAnswerResponse(name, result);
       } catch (err) {
         return {
           content: [
@@ -592,28 +544,7 @@ async function main() {
     }
 
     try {
-      const result = await callCanvasCategoryTool(hub, session, name, callArgs);
-
-      if (!result.success) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Tool ${name} failed: ${result.error}`,
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(result.data, null, 2),
-          },
-        ],
-      };
+      return toolAnswerResponse(name, await callCanvasCategoryTool(hub, session, name, callArgs));
     } catch (err) {
       return {
         content: [
@@ -631,7 +562,9 @@ async function main() {
     `[rogue-arena-mcp] Listed: ${listedTools.length} tools (${META_TOOLS.length} meta + ${alwaysTools.length} hub). Discoverable: ${discoverableTools.length} more via discover_tools.`
   );
 
-  // Start stdio transport
+  // Start stdio transport. When the client ends the connection, unfinished uploads are cancelled on the server
+  // before the process exits.
+  endUploadsWithTheConnection({ stdin: process.stdin, signals: process, exit: (code) => process.exit(code) });
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("[rogue-arena-mcp] MCP server running on stdio");
@@ -813,7 +746,7 @@ async function startDegradedServer(): Promise<void> {
 
       if (isLocalTool(name)) {
         try {
-          return await handleLocalTool(name, callArgs, recoveredAuth, recoveredHub);
+          return await handleLocalTool(name, callArgs, recoveredAuth, recoveredHub, recoveredSession);
         } catch (err) {
           return { content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
         }
@@ -831,14 +764,12 @@ async function startDegradedServer(): Promise<void> {
             result = await callCanvasCategoryTool(recoveredHub, recoveredSession, name, callArgs);
           }
 
-          if (!result.success) {
-            return { content: [{ type: "text" as const, text: `Tool ${name} failed: ${result.error}` }], isError: true };
-          }
+          if (!result.success) return toolAnswerResponse(name, result);
 
           const screenshotResponse = await tryBuildScreenshotResponse(name, result.data);
-          if (screenshotResponse) return screenshotResponse;
+          if (screenshotResponse) return { content: [...toolAnswerNoteContent(result), ...screenshotResponse.content] };
 
-          return { content: [{ type: "text" as const, text: JSON.stringify(result.data, null, 2) }] };
+          return toolAnswerResponse(name, result);
         } catch (err) {
           return { content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
         }

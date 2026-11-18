@@ -75,6 +75,18 @@ export function setToolPromotion(
   toMcpToolFn = toMcpTool;
 }
 
+/** Listed on every connection, before discovery, so a caller can always ask why other tools are missing. */
+export const AUTH_STATUS_TOOL = {
+  name: "rogue_auth_status",
+  description:
+    "Check the Rogue Arena MCP authentication status. Call this FIRST if other rogue_* tools are missing or returning auth errors. Reports whether auth is healthy, expired, or missing, and tells you exactly what the user needs to do to fix it.",
+  inputSchema: {
+    type: "object" as const,
+    properties: {},
+    additionalProperties: false,
+  },
+};
+
 export const META_TOOLS = [
   {
     name: "rogue_set_canvas",

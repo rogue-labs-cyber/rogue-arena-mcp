@@ -52,7 +52,7 @@ Complete these five steps BEFORE any other action. No exceptions — not for "qu
 
 1. **Get curriculum version ID** — Ask the user for a curriculum version ID. If you created the canvas in this session with `architect_canvas_create`, its `result.curriculumVersionId` is the course: use that. Do not guess or proceed without one. If you skip this, every subsequent tool call targets nothing.
 2. **Discover tools** — Call `discover_tools(category: "CURRICULUM")` to register all 34 curriculum tools. If you skip this, most tools will not be available.
-3. **Fetch metadata** — Call `curriculum_get_version` with the version ID. Read the `layoutType` field: **LINEAR** (sections containing ordered chapters) or **CTF** (nodes connected by edges on a 2D graph). If you skip this, you will call the wrong tools for the layout type.
+3. **Fetch metadata** — Call `curriculum_get_version` with the version ID. Read the `curriculumLayoutType` field: **LINEAR** (sections containing ordered chapters) or **CTF_NODE_MAP**, the CTF layout (nodes connected by edges on a 2D graph). If you skip this, you will call the wrong tools for the layout type.
 4. **Read full structure** — Call `curriculum_get_sections` (LINEAR) or `curriculum_get_ctf_nodes` (CTF). If you skip this, you will create duplicates or overwrite existing content you did not know about.
 5. **Verify target canvas is set** — Call `curriculum_get_target_canvas` with the version ID. If it returns no canvasVersionID, find the canvas the curriculum belongs to with `architect_canvas_list` (ask the user which only when several fit), then call `curriculum_set_target_canvas_version`. If you skip this, `curriculum_get_unlock_key_candidates` returns empty and every unlock-key tool fails silently with "no machines available" — you have no other signal that the binding is missing.
 
@@ -75,7 +75,7 @@ On startup, if the skill needs to write any local files:
 | Thought | Reality |
 |---------|---------|
 | "I know what blocks are in that chapter from the conversation." | Your memory is not the chapter. Call `curriculum_get_chapter_blocks` before editing. Content may have changed since you last read it. |
-| "This is a CTF curriculum but I'll use `curriculum_create_section`." | LINEAR and CTF tools are incompatible. Sections exist only in LINEAR. Nodes exist only in CTF. Check `layoutType` and use the correct tools. |
+| "This is a CTF curriculum but I'll use `curriculum_create_section`." | LINEAR and CTF tools are incompatible. Sections exist only in LINEAR. Nodes exist only in CTF. Check `curriculumLayoutType` (from `curriculum_get_version`) and use the correct tools. |
 | "I'll create the CTF node and connect edges later." | Orphaned CTF nodes are invisible to students. Always create edges immediately after creating a node. |
 | "I'll reorder with just the blocks I want to move." | `curriculum_reorder_blocks` requires ALL block IDs in the chapter, not just the ones moving. Omitting any block ID deletes it silently. |
 | "Let me delete this chapter — it's probably what they want." | `curriculum_delete_chapter` and `curriculum_remove_block` are irreversible. Always confirm with the user before calling destructive operations. |
@@ -124,18 +124,16 @@ Call `curriculum_get_unlock_key_candidates` to see available machines (and their
 
 **`writeToFile`** — the hub writes a generated key value to a file on the machine; the student must read and submit its content.
 - Use for: classic flag files ("read /root/flag.txt"), proving the student gained shell or file access, scavenger-hunt style finds.
-- Required fields on `curriculum_add_unlock_key`: `typeOfUnlockKey: "writeToFile"`, `assignToMachineNickname`, `keyfilepath` (absolute — Linux `/`, Windows drive-letter; path must not already exist).
-- Optional: `keyStudentHint`, `keyNicknameForAdminUse`.
+- Required fields on `curriculum_add_unlock_key`: `chapterID` (or `ctfNodeID` on a CTF layout), `typeOfUnlockKey: "writeToFile"`, `assignToMachine` (the machine's name or id), `keyNicknameForAdminUse`, `keyStudentHint`, `keyfilepath` (absolute — Linux `/`, Windows drive-letter; path must not already exist).
 
 **`runCommandRegexOutput`** — the hub runs a command on the machine and matches the output against a regex; the student demonstrates they accomplished a task whose output the regex captures.
 - Use for: "show me you set up X service" (`systemctl status X` + regex on "active (running)"), "prove user exists" (`id alice` + regex on `uid=`), "confirm port open" (`ss -tnlp` + regex on `:22`), "run nmap successfully" (regex on a known artifact in the output).
-- Required: `typeOfUnlockKey: "runCommandRegexOutput"`, `assignToMachineNickname`, `command`, `regex` (must compile — invalid regex is rejected at validation).
-- Optional but powerful: `studentValueExpected: true` + `studentValuePromptLabel` — prompts the student to submit a value at solve time; the platform substitutes it into `command` before running. Use for "create user named X, then submit the name" style tasks.
-- Optional: `keyStudentHint`, `keyNicknameForAdminUse`.
+- Required: `chapterID` (or `ctfNodeID`), `typeOfUnlockKey: "runCommandRegexOutput"`, `assignToMachine`, `keyNicknameForAdminUse`, `keyStudentHint`, `command`, `regex` (must compile — invalid regex is rejected at validation).
+- Optional but powerful: `studentValueExpected: true` + `studentValuePromptLabel` — prompts the student to submit a value at solve time; the platform substitutes it into `regex` as `{{value}}` (the regex must contain that placeholder) and matches the command's output. Use for "create user named X, then submit the name" style tasks.
 
 How to choose between the two: `writeToFile` when there's a concrete artifact-on-disk to find; `runCommandRegexOutput` when the student is configuring/proving system state rather than finding a secret.
 
-`curriculum_add_unlock_key` creates either type. `curriculum_update_unlock_key` patches an existing key — type, machine assignment, hint, admin nickname, and type-specific fields.
+`curriculum_add_unlock_key` creates either type; it also takes an optional `hop`, the id of the lab path's hop the key proves (such as `h3`, from the path saved with `architect_forest_manage`). It answers the key's `name` and `id`; that `id` is the `unlockKeyID` the update and remove calls take. `curriculum_update_unlock_key` patches an existing key by `unlockKeyID`, with `typeOfUnlockKey` matching the key's current type (it cannot change the type): hint, admin nickname, type-specific fields and `hop` (`null` clears it).
 
 **Chapter gating / passing requirements** — User wants chapters/nodes locked at deploy time, or wants the student to satisfy a completion or score threshold before advancing.
 
@@ -191,8 +189,8 @@ Always read chapter blocks before editing. Build content with visual variety —
 
 - Rich text blocks for instructional content (see `refs/block-types.md` for Slate schema)
 - Dividers between major topic shifts
-- Code blocks with the correct `codeLanguage` tag (BASH, PYTHON, POWERSHELL, etc.)
-- Callouts (INFO for tips/objectives, WARNING for gotchas, DANGER for destructive operations)
+- Code blocks with the correct `codeLanguage` tag (`bash`, `python`, `powershell`, etc.)
+- Callouts (`info` for tips/objectives, `warning` for gotchas, `danger` for destructive operations)
 - Question blocks for knowledge checks
 - Tabbed widgets or column layouts for side-by-side comparisons
 

@@ -51,8 +51,8 @@ Investigates deployment failures for architect-built scenarios. Operates on Ansi
 1. Find the deployment yourself. With no canvas bound, find the canvas with `architect_canvas_list` (ask which only when several fit) and call `rogue_set_canvas`. Then:
    - Call `architect_deploy_list_status()` or `architect_deploy_list_failed()` to find the failing build
 2. Read deployment status and identify failed machines:
-   - Call `architect_deploy_list_failed(deploymentId)` for the failure list
-   - Call `architect_deploy_get_machine_details(deploymentId, machineId)` per failed machine
+   - Call `architect_deploy_list_failed()` for the failure list
+   - Call `architect_deploy_get_machine_details({ machine })` per failed machine (`machine` is its name or id)
 
 <examples>
 User: "My deployment failed on CORP-DC01."
@@ -78,7 +78,7 @@ The #1 deployment failure mode. When a plugin's PowerShell script exits silently
 ## Output
 
 Present findings per failed machine:
-- **machineId** — which machine failed
+- **machine** — which machine failed
 - **rootCause** — the actual underlying issue
 - **errorPattern** — which known pattern this matches
 - **wrongConfig** — what was misconfigured

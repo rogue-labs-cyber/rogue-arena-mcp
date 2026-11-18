@@ -33,7 +33,7 @@ Complete these steps in order:
 
 Present findings per machine:
 
-- **machineId** — Which machine failed
+- **machine** — Which machine failed
 - **rootCause** — What actually went wrong (the real cause, not the symptom)
 - **errorPattern** — The error text found in logs
 - **wrongConfig** — Which parameter or configuration is incorrect
@@ -103,7 +103,7 @@ Discovered via `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory:
 
 1. `architect_deploy_list_status` — big picture first
 2. `architect_deploy_list_failed` — triage all errored machines at once
-3. `architect_deploy_get_machine_details` — deep-dive per machine (batches up to 10 via `machineNicknames`)
+3. `architect_deploy_get_machine_details` — deep-dive per machine (batches up to 10 via `machines`)
 4. `architect_deploy_log_query_raw` — grep logs (see Ansible Error Search Patterns below for the canonical pattern ladder)
 5. `architect_deploy_get_ansible_code` — read the plugin source via `ymlId`; the raw log often contains the embedded PowerShell script in `module_args.script`
 6. `architect_deploy_list_remaining` — find stuck builds, estimate remaining work
@@ -112,7 +112,7 @@ Discovered via `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory:
 
 **Credential mismatch** — Domain join fails because DC credentials do not match. Check DomainJoin plugin's `dcAdminPassword` against the DC setup plugin's admin password. Log pattern: `The specified network password is not correct`.
 
-**Network/DNS errors** — Machine cannot reach DC due to VLAN isolation or wrong gateway. Check `dnsForwarder` field on the VLAN and verify the DNS forwarding chain to the parent domain's DC. Log pattern: `No route to host` or `could not resolve domain`.
+**Network/DNS errors** — Machine cannot reach DC due to VLAN isolation or wrong gateway. Check the VLAN's `networkConfig.dnsForwardingTargets` (`architect_vlan_get`) and verify the DNS forwarding chain to the parent domain's DC. Log pattern: `No route to host` or `could not resolve domain`.
 
 **Template missing features** — Plugin requires a feature not present in the base template (e.g., .NET Framework version, Windows feature, wrong OS).
 

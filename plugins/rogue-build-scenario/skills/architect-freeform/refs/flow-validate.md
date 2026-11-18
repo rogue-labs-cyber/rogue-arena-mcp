@@ -28,7 +28,7 @@ Call `architect_canvas_get_overview` + `architect_vlan_list` + `architect_machin
 
 - Every VLAN in `scenario_part1.yml` → `architect_vlan_list` must return it.
 - Every machine in `_part1.yml` → `architect_machine_list` must return it.
-- Every character in `_part2.yml` → `architect_machine_get` on the owning machine must return matching character data.
+- Every character in `_part2.yml` → `architect_machine_get` (`machines`: the owning machine, `includeBpContext: true`, which adds its user assignments) must return matching character data.
 - Every plugin mapping in `_part3.yml` → `architect_assigned_plugin_get` must return the assignment.
 
 **On divergence,** bail:

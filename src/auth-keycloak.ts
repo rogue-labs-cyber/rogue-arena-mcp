@@ -5,8 +5,10 @@ import type { AuthProvider } from "./auth.js";
 import { execFileSync } from "node:child_process";
 
 // Must be > (ACCESS_TOKEN_LIFESPAN - BACKGROUND_REFRESH_MS/1000) to ensure proactive refresh.
-// With 300s token and 210s timer, remaining at fire = 90s. 90 < 120 → proactive refresh.
-const REFRESH_BUFFER_SECONDS = 120;
+// With 300s token and 210s timer, remaining at fire = 90s. 90 < 240 → proactive refresh.
+// 240 s, not less: the gateway buffers an upload chunk's body, so Vaults checks the bearer only once the whole chunk
+// arrived; every request leaves with at least 240 s on its bearer (tus-core CHUNK_SIZE is sized to that).
+const REFRESH_BUFFER_SECONDS = 240;
 const MAX_CONSECUTIVE_TRANSIENT_FAILURES = 3;
 const CIRCUIT_RESET_MS = 5 * 60 * 1000; // 5 minutes — auto-reset for transient failures
 

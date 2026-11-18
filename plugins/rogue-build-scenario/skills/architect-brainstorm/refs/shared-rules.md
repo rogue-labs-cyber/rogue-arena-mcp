@@ -1,5 +1,5 @@
 # Shared Rules & Constants
-These rules apply to ALL bpData generation. Load this file first before any other reference.
+These rules apply to ALL generated scenario content (the company, backstories, plugin params, files). Load this file first before any other reference.
 
 > **Build cascade:** For the full data flow diagram and tier-by-tier tool reference, see the root orchestrator skill (`rogue-build-scenario`).
 
@@ -48,10 +48,10 @@ Before generating output that will be large or time-consuming, PAUSE and confirm
 | Trigger | Example | What to Say |
 |---------|---------|-------------|
 | CSV param with 20+ expected rows | DC CreateUsers plugin for a Mid+ company | "This DC serves ~75 users — I'll generate a CSV with ~75 rows of user data (names, titles, departments, group memberships). This takes a moment. OK to proceed?" |
-| bpData with 50+ entities | Canvas character pool, large AD OU structure | "I'm about to generate ~80 fictional characters with full trait profiles. This is a large generation. OK?" |
+| A payload with 50+ entities | Canvas character pool, large AD OU structure | "I'm about to generate ~80 fictional characters with full trait profiles. This is a large generation. OK?" |
 | File manifest across 5+ machines | File seeding for a full VLAN | "I'll generate file manifests for 8 machines (~100+ file entries with rich topics). This will take a while. Want me to proceed, or do a subset first?" |
 | Relationship generation for 10+ users | Full relationship weave across 2+ VLANs | "There are 14 assigned users across 2 VLANs. I'll generate relationships + collaborative file artifacts for all of them. OK to proceed?" |
-| Forest events for 3+ domains | Multi-domain forest with backstories and cross-domain relationships | "This forest has 4 domains — I'll generate 6+ forest events with backstories, domain portraits, and cross-domain relationships. OK?" |
+| A forest story for 3+ domains | Multi-domain forest with backstories and cross-domain relationships | "This forest has 4 domains — I'll generate 6+ history entries with backstories, domain portraits, and cross-domain relationships. OK?" |
 
 ### How to Confirm
 
@@ -65,7 +65,7 @@ Before generating output that will be large or time-consuming, PAUSE and confirm
 - Small generations (< 20 CSV rows, < 5 machines, < 30 characters)
 - Re-runs of previously approved scope
 - Operations the user explicitly requested at that scale
-- Single-domain forest events (bounded, not large)
+- A single-domain forest story (bounded, not large)
 - Exploit chains with fewer than 5 hops
 
 ## Server/Workstation Ratio (Critical)
@@ -172,27 +172,26 @@ The machine should tell a story of who has been here and what they did over time
 **For fictional scenarios:** Department NAMES/THEMES can be fictional (e.g., "Obsidian Security Corps"), but function must map to standard enterprise roles.
 
 ### Headcount Math (Critical)
-- Department `estimatedHeadcount` values MUST sum to `constraints.maxUsers` (+/-5% tolerance)
-- Example: If maxUsers is 1200, department headcounts must sum to 1140–1260
-- Business units (in corporateStructure) are ORGANIZATIONAL GROUPINGS that OVERLAP with departments
-- Do NOT treat business unit employees as ADDITIONAL to department employees
-- Every employee belongs to exactly ONE department, but may work in multiple business units
+- Department `headcount` values (the world record's `organization.departments`) MUST sum to the organization's `headcount` (+/-5% tolerance)
+- Example: If the organization's headcount is 1200, department headcounts must sum to 1140–1260
+- The organization's `headcount` is the whole company, not the lab: the lab's directory users (named roster people plus generated staff) fit `constraints.maxUsers`
+- Other organizations (`entities`: subsidiaries, partners, suppliers) are not departments; never add their staff to department headcounts
+- Every employee belongs to exactly ONE department
 
 **Headcount Example (1200 employees):**
 IT: 200, Finance: 150, HR: 100, Sales: 250, Legal: 50, Operations: 200, Engineering: 250 = 1200
 
 ### Quality Requirements
 - Name: 3+ characters
-- Description: min 50 chars, combining what the department does AND its purpose
-- Function: min 30 chars
-- Key Responsibilities: 2–6 items, 10+ chars each
+- Purpose: min 50 chars, combining what the department does AND why
+- Head: the roster account of the department's head, an `addPeople` entry
 
 - BAD: "IT department handles technology"
 - GOOD: "IT Infrastructure team manages Active Directory, network security, endpoint protection, and EMR system administration for 450-bed hospital. Responsible for 24/7 uptime of critical medical systems and HIPAA compliance."
 
 ## Account Type Separation (Enforced)
-- Regular accounts (`accountType: "regular"`) -> Workstations ONLY
-- Admin accounts (`accountType: "admin"`) -> Servers ONLY
+- Regular accounts -> Workstations ONLY, assigned with `isAdmin: false`
+- Admin accounts -> Servers ONLY, assigned with `isAdmin: true`
 - Example: `jane.smith` (regular) gets workstation, `jane.smith.sa` (admin) gets server access
 - Each workstation gets exactly ONE primary user
 - Each user gets at most ONE primary workstation
@@ -235,14 +234,14 @@ Every VLAN is assigned a zone. Zones drive firewall posture, trust direction, an
 
 **DMZ domain membership** is posture-dependent: HARDENED = standalone/workgroup only; STANDARD = may be domain-joined; NEGLECTED = likely domain-joined (never enforced separation).
 
-Zones are set once by the domains skill when the VLAN is created. Enrichment does not re-assign zones — if a VLAN has no zone set, halt and ask the user to pick one.
+Zones are set once by the domains skill when the VLAN is created, written into the VLAN's `aiNotes` (`architect_vlan_add` takes no zone field). Enrichment does not re-assign zones — if a VLAN's `aiNotes` name no zone, halt and ask the user to pick one.
 
 ## Domain Relationship Vocabularies
 
 Two independent axes describe how domains relate. A single forest relationship (e.g., `acquisition`) can pair with any AD trust direction.
 
 - **`CrossDomainRelationshipType`** — business/forest relationship. Written by the domains skill via `architect_forest_manage`.
-- **`BlueprintDomainTrustEnum`** — AD trust direction at the network wiring layer. Written by the enrichment skill via `architect_vlan_manage_connection`.
+- **`BlueprintDomainTrustEnum`** — AD trust direction at the network wiring layer. `architect_vlan_manage_connection` takes no trust input; its answer reports the pair's `domainTrust`, and `architect_forest_get_domain_trusts` reports the trusts that stand (a connection's own trust, or a parent-child trust the forest's domain names imply).
 
 ### CrossDomainRelationshipType
 
@@ -277,7 +276,7 @@ Two independent axes describe how domains relate. A single forest relationship (
 
 ## Security Posture
 
-Security posture is an enum on the company profile that shapes AD organization, password distribution, naming consistency, DMZ behavior, and VLAN purpose text.
+Security posture is an enum in the lab's settings (`architect_canvas_set_context`'s `securityPosture`) that shapes AD organization, password distribution, naming consistency, DMZ behavior, and VLAN purpose text.
 
 | Value | Meaning |
 |---|---|
@@ -314,17 +313,17 @@ Mentioning "red team" alone does NOT trigger chaotic — the company itself must
 
 ## Staged Dispatch Pattern
 
-Large content (CSV params, stringBlock params, file content, canvas bpData, forest events, VLAN / machine backstories) is staged to disk under `{scenario_dir}/staging/`, not returned in subagent response bodies. Each affected MCP tool's description carries its own path template and assembly rule — read the tool description before dispatching. The orchestrator is the sole caller of those MCP tools; subagents only write fragment files.
+Large content (CSV params, stringBlock params, file content, the company, domain stories, VLAN / machine backstories) is staged to disk under `{scenario_dir}/staging/`, not returned in subagent response bodies. Staging is this skill's own working pattern: the tool descriptions name no staging path or assembly rule, and the Staging Layout below is the rule. The orchestrator is the sole caller of those MCP tools; subagents only write fragment files.
 
-The hub enforces size limits on inline values. Passing inline content over the limit is rejected with a 400 whose error message names the exact staging path the caller should use. Guidance in tool descriptions is advisory; the size-guard is load-bearing.
+The hub enforces a size limit per value (table below). A value over it is refused with a message to reduce it (fewer or shorter rows, events or entries) and call again; the refusal names no staging path.
 
 ### Rules for the orchestrator
 
 1. **Author identity-bearing fields yourself.** Before dispatching any subagent, the orchestrator owns and writes:
    - CSV header rows (`01-header.csv`), always, from the plugin catalog.
    - Passwords, samAccountNames, character IDs, file paths, unique keys — taken from `implementation.yml` or deterministically generated.
-   - File metadata (fileType, targetPath, topic, purpose, lastModifiedDaysAgo) for `architect_files_create`.
-2. **Allocate the identifier namespace.** When multiple subagents contribute rows to one CSV or characters to one bpData, the orchestrator slices the samAccountName / id space upfront and passes the allocated slice to each subagent. Subagents never see what another subagent wrote.
+   - File metadata (the file's kind, which picks its write tool, plus `fileName`, `targetPath`, `summary` and `modifiedAt`, or `properties.modifiedAt` for a document, sheet or deck) for the file write tools (`architect_files_write_text` and the five others, for logs, documents, sheets, decks and mail).
+2. **Allocate the identifier namespace.** When multiple subagents contribute rows to one CSV or characters to one payload, the orchestrator slices the samAccountName / id space upfront and passes the allocated slice to each subagent. Subagents never see what another subagent wrote.
 3. **Check `.pushed` before planning.** If the artifact folder contains a zero-byte `.pushed` sentinel, the artifact is already on the hub. Skip.
 4. **Verify from disk after every subagent return.** Never trust subagent self-reports. Run: file exists, `wc -l` in range, content-policy scan (no `TODO` / `PLACEHOLDER` markers), CSV headers match catalog (if applicable), schema-shape check for named-sections.
 5. **Post-merge invariants.** After assembly, validate against the tool's Zod schema + uniqueness (no duplicate samAccountName, character id, file path) + identity cross-check (every declared password / samAccountName / etc. is byte-for-byte the plan) + count cross-check.
@@ -345,21 +344,20 @@ If a subagent ever needs to "preserve existing rows" or "merge with existing con
 
 ## Staging Layout
 
-Two assembly patterns. Which one applies is declared in each tool's MCP description.
+Two assembly patterns. Which one applies follows the tool's input: one text value (a CSV, a script, a text file's `content`) is concatenated; a structured payload is composed from named sections.
 
-- **Concat** (CSVs, scripts, plaintext, single-blob bpData): folder contains fragments named `01-<label>.<ext>`, `02-<label>.<ext>`, .... Orchestrator concatenates contents in lexical filename order to build the final value.
-- **Named sections** (canvas bpData, forest events, structured files, structured backstory): folder contains files named per the schema section (e.g. `company-profile.json`, `leadership.json`, `events.json`, `sheet-sales.json`). Orchestrator reads each file and composes the structured payload per the tool's Zod schema.
+- **Concat** (CSVs, scripts, plaintext): folder contains fragments named `01-<label>.<ext>`, `02-<label>.<ext>`, .... Orchestrator concatenates contents in lexical filename order to build the final value.
+- **Named sections** (the company, domain stories, structured files, structured backstory): folder contains files named per the schema section (e.g. `organization.json`, `executives.json`, `backstories.json`, `sheet-sales.json`). Orchestrator reads each file and composes the structured payload per the tool's Zod schema.
 
-Per-tool size-guard limits (as of this rollout):
+Per-tool size limits:
 
 | Tool | Field | Limit |
 |---|---|---|
-| `architect_assigned_plugin_set_params` | each `params[].value` | 8 KB |
-| `architect_files_create` | `content` JSON stringified | 16 KB |
-| `architect_canvas_set_context` | `bpData` JSON stringified | 16 KB |
-| `architect_forest_manage` (`set` only) | `bpData` JSON stringified | 16 KB |
-| `architect_vlan_manage_backstory` | `bpData` JSON stringified | 4 KB |
-| `architect_machine_manage_backstory` (`set_backstory` only) | `bpData` JSON stringified | 4 KB |
+| `architect_assigned_plugin_set_params` | each `params[].value` | 512,000 bytes |
+| `architect_files_write_text` and the other five file write tools | `content`, JSON stringified | 1,048,576 bytes |
+| `architect_forest_manage` | `addBackstories` and `addRelationships` together, JSON stringified | 512,000 bytes |
+| `architect_vlan_manage_backstory` | `bpData`, JSON stringified | 512,000 bytes |
+| `architect_machine_manage_backstory` (whole backstory, `bpData` only) | `bpData`, JSON stringified | 512,000 bytes |
 
 ## Default Tool Discovery
 
@@ -369,7 +367,7 @@ When calling multiple MCP tools in sequence, batch-fetch their schemas with a si
 
 **Specialty extras (loaded by the sub-skill that needs them):**
 
-- debug-deploy: `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "deploy")` for the 6 LIVEDEPLOY tools.
+- debug-deploy: `discover_tools(category: "ROGUE_ARCHITECT_BUILDER", subcategory: "deploy")` for the deploy tools.
 
 **Plugin-catalog tool naming — `_get_example` vs `_get_addon_config_sample`.** These two are easy to confuse and serve different purposes:
 
@@ -441,7 +439,7 @@ Total file entries on the machine — not per user. Workstations usually have on
 | Older | 31-90 | 20% |
 | Archive | 91-365 | 10% |
 
-At least 1 file must have `lastModifiedDaysAgo` > 180. The full range 0-365 must be represented. Every workstation manifest includes 1-2 email artifacts (OST, PST, or saved .eml).
+Days ago count back from the story clock's `today`; a file's date is its `modifiedAt` (`properties.modifiedAt` for a document, sheet or deck), never after `today`. At least 1 file must be more than 180 days old. The full range 0-365 must be represented. Every workstation manifest includes 1-2 email artifacts (OST, PST, or saved .eml).
 
 ## Backstory Event Categories
 

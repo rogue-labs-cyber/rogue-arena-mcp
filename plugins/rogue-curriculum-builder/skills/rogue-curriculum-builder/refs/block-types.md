@@ -1,5 +1,7 @@
 # Block Types Reference
 
+Every block tool (`curriculum_insert_block`, `curriculum_update_block`, `curriculum_bulk_insert_blocks`, `curriculum_bulk_update_blocks`) takes `blocks`: one flat list with one item per block. Each item carries an `id`, a short name that only links items (inserted blocks get their UUIDs from the curriculum service; an update item's `id` is the block's UUID). A block inside a tabbed widget tab or a column sets `parentId` to the container's `id` and `slot` to the tab (0-1) or column (0-based); a top-level block has neither. The tables below list each block's own fields beside those links.
+
 ## Rich Text Block
 
 Type value: `"richText"` (use in the `type` field)
@@ -105,7 +107,7 @@ Type value: `"code"`
 | codeLanguage | enum | Yes |
 | code | `string` | Yes |
 
-Languages: `JAVASCRIPT`, `PYTHON`, `JAVA`, `CSHARP`, `CPP`, `HTML`, `CSS`, `SQL`, `BASH`, `POWERSHELL`, `JSON`, `XML`, `YAML`
+Languages: `javascript`, `python`, `java`, `csharp`, `cpp`, `html`, `css`, `sql`, `bash`, `powershell`, `json`, `xml`, `yaml`
 
 ## Divider Block
 
@@ -128,7 +130,7 @@ Type value: `"callout"`
 | title | `string` | Yes |
 | content | `string` | Yes |
 
-Variants: `DANGER`, `INFO`, `SUCCESS`, `WARNING`
+Variants: `danger`, `info`, `success`, `warning`
 
 ## Image Block
 
@@ -143,7 +145,7 @@ Type value: `"image"`
 | widthPct | `number` | No (default `100`) |
 | alignment | enum | No |
 
-Alignments: `LEFT`, `CENTER`, `RIGHT`
+Alignments: `left`, `center`, `right`
 
 ## Video Block
 
@@ -152,7 +154,6 @@ Type value: `"video"`
 | Field | Type | Required |
 |-------|------|----------|
 | type | `"video"` | Yes |
-| provider | `"bunny"` | Yes |
 | videoId | `string` | Yes (from media library) |
 | title | `string` | No |
 | description | `string` | No |
@@ -180,7 +181,7 @@ Type value: `"fileDownload"`
 | type | `"fileDownload"` | Yes |
 | files | `Array` | Yes |
 
-`files` is `[{ mediaId: string, displayName?: string, caption?: string }]` — one or more downloadable artifacts the student should grab locally (config files, sample payloads, lab packets, scripts). Each entry references an existing item in the media library; pick IDs via `curriculum_search_media` / `curriculum_browse_media`, or upload net-new files with `curriculum_upload_media`.
+`files` is `[{ mediaId: string, displayName?: string, caption?: string }]` — one or more downloadable artifacts the student should grab locally (config files, sample payloads, lab packets, scripts). Each entry references an existing item in the media library; pick IDs via `curriculum_search_media` / `curriculum_browse_media`, or upload net-new files with `curriculum_upload_media` (the `id` it answers is the `mediaId`). The block goes in with `curriculum_insert_block` like any other.
 
 ## Question Block
 
@@ -189,34 +190,33 @@ Type value: `"question"`
 | Field | Type | Required |
 |-------|------|----------|
 | type | `"question"` | Yes |
-| questionNumber | `number` | Yes |
+| questionNumber | `number` | No |
 | questionText | `string` | Yes |
 | questionType | enum | Yes |
-| answers | `Array` | For MULTIPLE / MULTI_SELECT types |
-| pairs | `Array` | For MATCHING |
-| distractors | `string[]` | For MATCHING (optional noise values on right side) |
-| items | `Array` | For ORDERING |
-| image | `ImageRef` | For DIAGRAM_SELECTION |
-| regions | `Array` | For DIAGRAM_SELECTION |
-| showHotspots | `boolean` | For DIAGRAM_SELECTION (default `false`) |
-| requireAnswer | `boolean` | No |
+| answers | `Array` | For `multiple` / `multi_select` |
+| pairs | `Array` | For `matching` |
+| distractors | `string[]` | For `matching` (optional noise values on right side) |
+| items | `Array` | For `ordering` |
+| image | `ImageRef` | For `diagram_selection` |
+| regions | `Array` | For `diagram_selection` |
+| showHotspots | `boolean` | For `diagram_selection` (default `false`) |
 
-Question types: `SHORT`, `LONG`, `MULTIPLE`, `MULTI_SELECT`, `MATCHING`, `ORDERING`, `DIAGRAM_SELECTION`, `FILE_UPLOAD`
+Question types: `short`, `long`, `multiple`, `multi_select`, `matching`, `ordering`, `diagram_selection`, `file_upload`
 
-For MULTIPLE / MULTI_SELECT types, `answers` is: `[{ text: string, correct: boolean }]`.
-- `MULTIPLE` enforces exactly one `correct: true`. Binary scoring.
-- `MULTI_SELECT` allows one or more `correct: true`. Students earn partial credit via Jaccard similarity (`|chosen ∩ correct| / |chosen ∪ correct|`).
+For `multiple` / `multi_select`, `answers` is: `[{ id: string, text: string, correct: boolean }]`.
+- `multiple` enforces exactly one `correct: true`. Binary scoring.
+- `multi_select` allows one or more `correct: true`. Students earn partial credit via Jaccard similarity (`|chosen ∩ correct| / |chosen ∪ correct|`).
 
-For MATCHING, `pairs` is: `[{ id: string, leftText: string, rightText: string }]`.
+For `matching`, `pairs` is: `[{ id: string, leftText: string, rightText: string }]`.
 - Each pair links one left term to its right counterpart. Aim for 4–8 pairs.
 - Students earn partial credit via `correctPairs / totalPairs`.
 - Optional `distractors: string[]` — right-side noise values that match no left term. Students must reject them. Keep to ~2–3 max.
 
-For ORDERING, `items` is: `[{ id: string, text: string }]`.
+For `ordering`, `items` is: `[{ id: string, text: string }]`.
 - Array order is the canonical correct order students must reproduce.
 - Students earn partial credit via `correctPositions / totalPositions` (each item placed in its canonical slot counts).
 
-For DIAGRAM_SELECTION, `image` is `{ kind: "inline", base64: string, mimeType: "image/png" | "image/jpeg" }` and `regions` is `[{ id: string, label: string, shape: "rect", coords: { x, y, w, h }, isCorrect: boolean }]`.
+For `diagram_selection`, `image` is `{ kind: "inline", base64: string, mimeType: "image/png" | "image/jpeg" }` and `regions` is `[{ id: string, label: string, shape: "rect", coords: { x, y, w, h }, isCorrect: boolean }]`.
 - The image must be PNG or JPEG, &le;500KB raw. SVG is rejected at every layer for security.
 - Region `coords` are normalized to the 0..1 range.
 - Students click the hotspots they think are correct. Grading uses Jaccard similarity on selected region IDs (`|chosen ∩ correct| / |chosen ∪ correct|`).
@@ -232,8 +232,7 @@ Use for "select all that apply" questions. Create the empty shell, then add each
   "chapterID": "abc-123",
   "action": "create",
   "questionType": "multi_select",
-  "questionText": "Which of these are enumeration tools? (Select all that apply.)",
-  "requireAnswer": true
+  "questionText": "Which of these are enumeration tools? (Select all that apply.)"
 }
 // Returns: { questionID: "..." }
 
@@ -269,8 +268,7 @@ Use when content pairs naturally (term/definition, tool/purpose). Create the emp
   "chapterID": "abc-123",
   "action": "create",
   "questionType": "matching",
-  "questionText": "Match each enumeration tool with what it primarily enumerates.",
-  "requireAnswer": true
+  "questionText": "Match each enumeration tool with what it primarily enumerates."
 }
 // Returns: { questionID: "..." }
 
@@ -316,8 +314,7 @@ Use for sequential steps (kill chain, command pipeline, recipe). Create the empt
   "chapterID": "abc-123",
   "action": "create",
   "questionType": "ordering",
-  "questionText": "Place the Cyber Kill Chain phases in order.",
-  "requireAnswer": true
+  "questionText": "Place the Cyber Kill Chain phases in order."
 }
 // Returns: { questionID: "..." }
 
@@ -364,7 +361,6 @@ Use for "click the X on this diagram" questions. Best for network diagrams, kill
   "action": "create",
   "questionType": "diagram_selection",
   "questionText": "Click each subnet that holds an internet-facing host.",
-  "requireAnswer": true,
   "imageBase64": "<base64 of PNG or JPEG, <=500KB raw>",
   "mimeType": "image/png",
   "regions": [
@@ -439,9 +435,8 @@ Type value: `"tabbedWidget"`
 | tabName1 | `string` | Yes |
 | tabName2 | `string` | Yes |
 | defaultTab | `number` | No (default `0`) |
-| tabs | `Block[][]` | Yes |
 
-`tabs` is an array of 2 arrays — each containing blocks for that tab.
+The widget item lists no tabs: each block inside a tab is its own item in the same flat list, with `parentId` set to the widget's `id` and `slot` to the tab (`0` or `1`). Example: `[{"id":"tabs","type":"tabbedWidget","tabName1":"Linux","tabName2":"Windows","defaultTab":0},{"id":"l","parentId":"tabs","slot":0,"type":"code","codeLanguage":"bash","code":"ls -la"},{"id":"w","parentId":"tabs","slot":1,"type":"code","codeLanguage":"powershell","code":"Get-ChildItem"}]`.
 
 ## Column Layout Block
 
@@ -451,8 +446,7 @@ Type value: `"columns"`
 |-------|------|----------|
 | type | `"columns"` | Yes |
 | layoutType | enum | Yes |
-| columns | `Block[][]` | Yes |
 
-Layout types: `TWO_COLUMN`, `THREE_COLUMN`
+Layout types: `two_column`, `three_column`
 
-`columns` is an array of 2 or 3 arrays — each containing blocks for that column.
+The columns item lists no columns: each block inside a column is its own item, with `parentId` set to the columns block's `id` and `slot` to the column (0-based: 0-1 for `two_column`, 0-2 for `three_column`).

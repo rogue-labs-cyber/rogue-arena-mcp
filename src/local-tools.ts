@@ -5,6 +5,9 @@ import { homedir } from "node:os";
 import type { AuthProvider } from "./auth.js";
 import type { HubClient } from "./hub-client.js";
 import { describeHubFailure } from "./hub-errors.js";
+import { resolveMachineReference } from "./machine-reference.js";
+import { toolAnswerNotes, toolRefusalText } from "./tool-answer.js";
+import type { Session } from "./session.js";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { randomUUID } from "node:crypto";
@@ -34,6 +37,8 @@ interface ScriptRunState {
   endTime?: string;
   // Raw hub response — stored as-is to avoid shape coupling
   resultData?: unknown;
+  /** The hub's notes on a run that was done: fields it left out, readings it made. */
+  notes?: string;
   error?: string;
   // AbortController for cancelling the in-flight hub request
   _abortController?: AbortController;
@@ -103,6 +108,7 @@ function serializeScriptRun(state: ScriptRunState): Record<string, unknown> {
       result[key] = value;
     }
   }
+  if (state.notes !== undefined) result.notes = state.notes;
   if (state.error) result.error = state.error;
   return result;
 }
@@ -187,7 +193,7 @@ const PluginDevUploadSchema = z
 
 const ArchitectVaultUploadSchema = z
   .object({
-    machineId: z.string().uuid(),
+    machine: z.string().min(1),
     localFilePath: z.string().min(1),
   })
   .strict();
@@ -323,16 +329,16 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
       "Poll architect_transfer_status every 10-15 seconds; cancel via architect_transfer_cancel. " +
       "**Uploading a file is not sufficient to deliver it to the VM.** After uploading, apply the \"File Copy\" plugin so the file lands on the target at deploy time: " +
       "1. architect_plugin_catalog_search({ searchTerm: \"file copy\" }) → find the File Copy plugin (exact name match surfaces it first). " +
-      "2. architect_assigned_plugin_add with that pluginID and runOrderSequence. " +
-      "3. architect_assigned_plugin_set_params with source (forward-slash vault path, e.g. \"C:/Users/jsmith/Desktop/report.xlsx\"), destination (target VM path), isFolder, copyContentsOfFolder. " +
+      "2. architect_assigned_plugin_add with machine (the machine's name or id) and pluginId (that catalog plugin's id). " +
+      "3. architect_assigned_plugin_set_params with plugin (the applied plugin's name or id; add machine when the name alone does not say which) and params, one { parameterFieldName, value } per field, each value a string: source (forward-slash vault path, e.g. \"C:/Users/jsmith/Desktop/report.xlsx\"), destination (target VM path), isFolder, copyContentsOfFolder. " +
       "Prefer folder-level delivery over per-file calls: upload a zip or use a trailing-slash source with isFolder=\"true\" and copyContentsOfFolder=\"true\" to copy an entire directory (e.g. all files on Desktop) in one plugin rather than one plugin per file.",
     inputSchema: {
       type: "object" as const,
       properties: {
-        machineId: {
+        machine: {
           type: "string",
-          format: "uuid",
-          description: "UUID of the post-Apply machine node",
+          minLength: 1,
+          description: "The post-Apply machine: its exact name on the current canvas, or its id",
         },
         localFilePath: {
           type: "string",
@@ -340,7 +346,7 @@ export const LOCAL_TOOLS: LocalToolDefinition[] = [
           description: "Absolute path to the file on the local machine",
         },
       },
-      required: ["machineId", "localFilePath"],
+      required: ["machine", "localFilePath"],
       additionalProperties: false,
     },
   },
@@ -708,13 +714,14 @@ export async function handleLocalTool(
   name: string,
   args: Record<string, unknown>,
   auth: AuthProvider,
-  hub: HubClient | null
+  hub: HubClient | null,
+  session: Pick<Session, "currentCanvas"> | null
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
   switch (name) {
     case "plugin_dev_upload_to_vault":
       return handleTusUpload(args, auth);
     case "architect_machine_vault_upload":
-      return handleArchitectMachineVaultUpload(args, auth);
+      return handleArchitectMachineVaultUpload(args, auth, hub, session);
     case "deployment_upload_file":
       return handleActiveDeploymentUpload(args, auth);
     case "deployment_download_file":
@@ -859,13 +866,14 @@ async function handleTusUpload(
 
 async function handleArchitectMachineVaultUpload(
   args: Record<string, unknown>,
-  auth: AuthProvider
+  auth: AuthProvider,
+  hub: HubClient | null,
+  session: Pick<Session, "currentCanvas"> | null
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
   const parsed = parseInput(ArchitectVaultUploadSchema, args);
   if (!parsed.success) {
     return { content: [{ type: "text", text: parsed.error }], isError: true };
   }
-  const { machineId } = parsed.data;
   const localFilePath = validateLocalPath(parsed.data.localFilePath, "read");
 
   if (!fs.existsSync(localFilePath)) {
@@ -881,6 +889,18 @@ async function handleArchitectMachineVaultUpload(
       isError: true,
     };
   }
+
+  if (hub === null || session === null) {
+    return {
+      content: [{ type: "text", text: "architect_machine_vault_upload needs a hub connection to find the machine. Nothing was uploaded." }],
+      isError: true,
+    };
+  }
+  const reference = await resolveMachineReference(hub, session, parsed.data.machine);
+  if (!reference.found) {
+    return { content: [{ type: "text", text: `${reference.refusal} Nothing was uploaded.` }], isError: true };
+  }
+  const { machineId } = reference;
 
   if (countActiveTransfers() >= MAX_CONCURRENT_TRANSFERS) {
     return {
@@ -1680,12 +1700,13 @@ async function handleRunScriptBg(
 
       if (!result.success) {
         console.error(`[rogue-arena-mcp] Script run failed [${scriptRunId}]: ${result.error}`);
-        finishScriptRun(state, "failed", result.error ?? "Unknown error");
+        finishScriptRun(state, "failed", toolRefusalText("deployment_run_script", result));
         return;
       }
 
       // Store raw hub response — avoids shape coupling, keeps output in sync with hub automatically
       state.resultData = result.data;
+      state.notes = toolAnswerNotes(result) ?? undefined;
 
       console.error(
         `[rogue-arena-mcp] Script run completed [${scriptRunId}]`

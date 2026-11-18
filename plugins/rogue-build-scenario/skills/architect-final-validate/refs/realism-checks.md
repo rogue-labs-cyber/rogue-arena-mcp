@@ -28,8 +28,8 @@ File share completeness and organization. Real file servers have multiple shares
 
 **Per-user document seeding (logged-in workstations).** A real user's machine has documents — work artifacts, role-aligned drafts, hobby-related items, scattered notes. Empty desktops are obviously synthetic. For each machine where a user is `isActivelyLoggedIn: true`:
 
-1. Call `architect_files_get_seeding_context([machineId])` once to pull the user's `filingHabits`, `workStyle`, `hobbies`, and `workplaceEvents.potentialFiles` hints.
-2. Call `architect_machine_list_files([machineId])` and count files seeded under user-relevant paths (e.g., `C:\Users\{sam}\Desktop`, `Documents`, `Downloads`).
+1. Call `architect_files_get_seeding_context({ machines: [machine] })` once to pull the user's `filingHabits`, `workStyle`, `hobbies`, and `workplaceEvents.potentialFiles` hints.
+2. Call `architect_machine_list_files({ machines: [machine] })` and count files seeded under user-relevant paths (e.g., `C:\Users\{sam}\Desktop`, `Documents`, `Downloads`).
 3. Score against threshold (default 20 user-relevant docs):
 
    | File count | Severity |
@@ -115,10 +115,10 @@ If the "why not one lower" justification is missing, the score is one lower.
 Before scoring, prep the data the categories need:
 
 1. `architect_canvas_get_overview` for VLANs, machines, domains, and `resourceBudget`.
-2. `architect_canvas_get_context` for intended industry, size, and culture (drives the Proportionality Principle).
-3. `architect_forest_get_events` for narrative + AD topology.
-4. `architect_vlan_list` then `architect_vlan_get` per VLAN to inspect AD blueprints, user archetypes, and security groups.
-5. `architect_machine_get` on every DC and every file server (use `discover_tools(search: "batch")` for 3+ machines). Count actual users from `CreateUsers` rather than estimating.
+2. `architect_canvas_get_context` for the intended size (`constraints`) and posture, and `architect_forest_get_events` for the industry and culture (`world.organization`: `sector`, `culture`); together they drive the Proportionality Principle.
+3. `architect_forest_get_events` for narrative (the dated `history`) + AD topology (`domainBackstories`, `crossDomainRelationships`).
+4. `architect_vlan_list` then `architect_vlan_get` (`vlans`, up to 20 per call) for each VLAN's domain, `aiNotes` and machines; users, OUs and security groups live in the DC's `CreateUsers`, `CreateOUs` and `CreateGroups` params.
+5. `architect_machine_get` on every DC and every file server (`machines` takes up to 50 per call). Count actual users from `CreateUsers` rather than estimating.
 6. `discover_tools(search: "vulnerability state")` to audit attack-surface proportionality.
 
 Every one of the 7 categories must be evaluated. A category left unevaluated drops the score ceiling to 6 (per Score Ceiling Rules above). The orchestrator (SKILL.md) owns the consolidated report and verdict — this ref's job is the score, the findings, and the justification.

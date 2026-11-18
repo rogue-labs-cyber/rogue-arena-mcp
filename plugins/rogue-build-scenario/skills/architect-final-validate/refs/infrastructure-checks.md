@@ -25,7 +25,7 @@ Findings take one of three classifications:
 - **WARN** — soft issue worth surfacing, OR data was unavailable to run the check (tag these as `WARN (UNVERIFIED)`). Informational, not blocking.
 - **FAIL** — tool output confirms the check failed. Blocking.
 
-Tool-call failures (e.g., `architect_machine_get` returns an error for one machine) produce a `WARN (UNVERIFIED)` finding for the checks that depended on that data, not a silent skip.
+Tool-call failures (e.g., `architect_machine_get` lists one machine under `failed`, with its `error`) produce a `WARN (UNVERIFIED)` finding for the checks that depended on that data, not a silent skip.
 
 ## Infrastructure Checks
 
@@ -36,7 +36,7 @@ Credentials defined on DCs (producers) match credentials used on workstations/se
 All required plugin parameters are set. Parameter values match expected types/formats. No orphan machines exist without any plugins. To audit all configured parameters across machines in bulk, call `discover_tools(search: "list params")`.
 
 ### 3. AD Structure Consistency
-DC plugin params (CreateUsers, CreateOUs, CreateGroups) are internally consistent. Every user referenced in CreateUsers has a valid OU path in CreateOUs, and group memberships reference groups defined in CreateGroups. VLAN AD blueprint matches DC plugin params — every userArchetype, securityGroup, and serviceAccount in the blueprint has a corresponding entry on the DC. Additionally, verify the total user count across every DC's CreateUsers matches `constraints.maxUsers` from `architect_canvas_get_context` within +/-5% (per [shared-rules.md § Department Requirements — Headcount Math](shared-rules.md#headcount-math-critical)); drift produces `HEADCOUNT_DRIFT`.
+DC plugin params (CreateUsers, CreateOUs, CreateGroups) are internally consistent. Every user referenced in CreateUsers has a valid OU path in CreateOUs, and group memberships reference groups defined in CreateGroups. Additionally, verify the total user count across every DC's CreateUsers matches `constraints.maxUsers` from `architect_canvas_get_context` within +/-5% (per [shared-rules.md § Department Requirements — Headcount Math](shared-rules.md#headcount-math-critical)); drift produces `HEADCOUNT_DRIFT`.
 
 ### 4. Cross-Domain Connectivity
 VLANs hosting domains with trust relationships have VLAN connections configured. Connectivity direction matches trust type (bidirectional trust needs two-way VLAN connectivity).
@@ -92,7 +92,7 @@ Plugin parameters frequently contain hardcoded IPs and ports that reference othe
 **Soft finding tone:** Like Check 12, frame findings as potential gaps: "This IP in plugin params doesn't match any machine's static IP — if this is configured via custom scripting or refers to an external resource, it may be safe to ignore."
 
 ### 14. Firewall & Network Flow Consistency
-VLAN connections carry full firewall rule sets (ordered rules with ports, protocols, source/destination IPs, allow/deny states, and a default policy of BLOCK_ALL or ALLOW_ALL). This check validates that the firewall configuration actually permits the traffic that the scenario's plugins and services require.
+VLAN connections carry full firewall rule sets (ordered rules with ports, protocols, source/destination IPs, allow/deny states, and a default policy of `block_all` or `allow_all`). This check validates that the firewall configuration actually permits the traffic that the scenario's plugins and services require.
 
 **Strategy:** For each VLAN connection, read the firewall rules and default policy. Then evaluate whether the services running on machines in those VLANs can communicate as intended.
 
@@ -109,11 +109,11 @@ For any plugin not above (FTP, web, syslog, WinRM, agent enrollment, etc.), pull
 
 **Checks:**
 1. **Service flow permitted** — For each cross-VLAN service dependency, verify the firewall rules (evaluated in sort order, with the default policy as fallback) permit the required ports and protocol. A blocked required flow produces `FIREWALL_BLOCKS_REQUIRED_FLOW`.
-2. **Default policy sanity** — If a connection's default policy is `ALLOW_ALL` but the scenario includes security infrastructure (SIEM, IDS, segmentation), flag as `PERMISSIVE_DEFAULT_POLICY` (WARN). Real segmented networks use BLOCK_ALL with explicit allows.
+2. **Default policy sanity** — If a connection's default policy is `allow_all` but the scenario includes security infrastructure (SIEM, IDS, segmentation), flag as `PERMISSIVE_DEFAULT_POLICY` (WARN). Real segmented networks use `block_all` with explicit allows.
 3. **Stale or contradictory rules** — Flag rules that are shadowed by a higher-priority rule (same port/protocol, opposite action at a lower sort order). Produces `SHADOWED_FIREWALL_RULE` (WARN).
-4. **Missing firewall rules on connection** — If two VLANs are connected but have zero firewall rules and a BLOCK_ALL default, all cross-VLAN traffic is blocked. If machines on those VLANs have cross-VLAN dependencies, produce `CONNECTION_BLOCKS_ALL_TRAFFIC`.
+4. **Missing firewall rules on connection** — If two VLANs are connected but have zero firewall rules and a `block_all` default, all cross-VLAN traffic is blocked. If machines on those VLANs have cross-VLAN dependencies, produce `CONNECTION_BLOCKS_ALL_TRAFFIC`.
 
-**Soft finding tone for permissive policies:** ALLOW_ALL may be intentional for flat lab networks or early-stage builds. Frame as: "This connection uses ALLOW_ALL — if segmentation is intentional for this scenario, consider adding explicit firewall rules."
+**Soft finding tone for permissive policies:** `allow_all` may be intentional for flat lab networks or early-stage builds. Frame as: "This connection uses `allow_all` — if segmentation is intentional for this scenario, consider adding explicit firewall rules."
 
 ### 15. Local Group Membership Enforcement
 When a domain defines granular administrative groups in its DC's `CreateGroups` param (e.g., "Workstation Admins", "File Server Admins", "SQL Server Admins" — any group whose name or description implies scoped local admin rights rather than blanket domain-wide admin), those groups are only meaningful if machines actually assign them to local admin via a local group membership plugin.
@@ -138,7 +138,7 @@ Every account name authored on the canvas must satisfy Windows account-name rule
    - Walk every assigned plugin on every machine via `architect_assigned_plugin_get`.
    - Inspect param values for fields named like `samAccountName`, `username`, `userName`, `account`, `login`, or `localUser`. Also inspect inline scripts in Run PowerShell / Run Bash plugins for `New-LocalUser`, `useradd`, or equivalent commands and extract the account name.
    - Apply the same length + character-set validation to every value found.
-3. **AD blueprint user archetypes** (if present on VLAN AD blueprints) — same validation.
+3. **Roster accounts** — the world record's named roster (`architect_forest_get_events`): same validation.
 
 **Validation rules** (apply uniformly to every source above):
 
@@ -162,7 +162,7 @@ This check is the union of three signals — declared deps, trust topology, and 
 
 **Strategy:**
 
-1. **Build the dependency edge set.** Walk every assigned plugin via `architect_assigned_plugin_get` (use `discover_tools(search: "batch")` for bulk reads). For each plugin with non-empty `crossMachineDependencies`, emit an edge `{source: pluginMachine, target: depMachine, sourcePlugin, targetPlugin}`. Add edges from each domain trust pair (DC → DC in both directions for bidirectional trusts; one direction for unidirectional). Add edges harvested from Check 13's IP cross-reference pass.
+1. **Build the dependency edge set.** Walk every assigned plugin via `architect_assigned_plugin_get` (`plugins` takes up to 25 per call). For each plugin with non-empty `crossMachineDependencies`, emit an edge `{source: pluginMachine, target: depMachine, sourcePlugin, targetPlugin}`. Add edges from each domain trust pair (DC → DC in both directions for bidirectional trusts; one direction for unidirectional). Add edges harvested from Check 13's IP cross-reference pass.
 2. **Resolve VLANs.** For each edge, look up the source and target machines' VLAN via `architect_machine_get`. Same VLAN → no firewall to evaluate, skip. Different VLANs → continue.
 3. **Resolve required ports.** Pull the port list from `architect_plugin_catalog_get_example` / `architect_plugin_catalog_list_full` for the source and target plugins. **Trust edges short-circuit port resolution** — the canonical configuration between trusted domain VLANs is `defaultPolicy: allow_all` with no rules. Don't try to thread individual ports; flag the trust pair if it's anything other than `allow_all` (see step 5). Per-port evaluation (step 4) only runs for non-trust edges — declared deps and param-IP-derived flows.
 4. **Evaluate firewall rules.** Read the connecting VLAN's firewall rules and `defaultPolicy` via `architect_vlan_get` (rules carry `state: allow|drop|deny`, `portsArray`, `protocol`, `sourceIPArray`, `destinationIPArray`, evaluated in sort order). Walk rules in order; first match wins; otherwise `defaultPolicy` decides. For each required port:
@@ -174,7 +174,7 @@ This check is the union of three signals — declared deps, trust topology, and 
    - `defaultPolicy: block_all` (with or without rules) → `TRUST_PAIR_RESTRICTED` (FAIL). Threading individual ports between trusted domains breaks replication when the dynamic RPC range (`49152-65535`) is omitted, which is almost always.
    - `defaultPolicy: allow_all` with `drop`/`deny` rules layered on top → `TRUST_PAIR_RESTRICTED` (FAIL). The deny rules will block specific ports the trust needs.
    - `defaultPolicy: allow_all` with no rules → PASS. This is the canonical configuration.
-   - Connection's `aiNotes` documents an explicit segmented-trust scenario (e.g., "this trust is intentionally restricted as a pen-test lesson") AND the rules cover the full DC-to-DC set (53, 88, 135, 137-139, 389, 445, 464, 636, 3268, 3269, 49152-65535) → PASS with WARN noting the unusual configuration.
+   - The source VLAN's `aiNotes` documents an explicit segmented-trust scenario (e.g., "this trust is intentionally restricted as a pen-test lesson") AND the rules cover the full DC-to-DC set (53, 88, 135, 137-139, 389, 445, 464, 636, 3268, 3269, 49152-65535) → PASS with WARN noting the unusual configuration.
 
    Trust pairs are an exception to Check 14's `PERMISSIVE_DEFAULT_POLICY` rule — between trusted domain VLANs, `allow_all` is the expected default, not a finding.
 6. **No connection at all.** If two VLANs hosting machines connected by a dependency edge have no `architect_vlan_manage_connection` connection, emit `MISSING_DEPENDENCY_CONNECTION` (FAIL). This is a stronger version of `CONNECTION_BLOCKS_ALL_TRAFFIC` (Check 14) — a specific named dependency identifies what's broken.
@@ -230,9 +230,9 @@ For every reference found, resolve against the appropriate DC's `CreateOUs` / `C
 | `MISSING_REFERENCED_SERVICE` | Target machine at referenced IP has no plugin provisioning the expected service | Check 13 |
 | `UNREACHABLE_PARAM_IP` | Source machine cannot reach referenced IP (no VLAN connectivity) | Check 13 |
 | `FIREWALL_BLOCKS_REQUIRED_FLOW` | Firewall rules block a port/protocol required by a deployed service | Check 14 |
-| `PERMISSIVE_DEFAULT_POLICY` | ALLOW_ALL default on a connection in a segmented/security-focused scenario | Check 14 |
+| `PERMISSIVE_DEFAULT_POLICY` | `allow_all` default on a connection in a segmented/security-focused scenario | Check 14 |
 | `SHADOWED_FIREWALL_RULE` | A rule is fully shadowed by a higher-priority rule with the opposite action | Check 14 |
-| `CONNECTION_BLOCKS_ALL_TRAFFIC` | Connected VLANs have BLOCK_ALL default + zero rules, but machines need cross-VLAN traffic | Check 14 |
+| `CONNECTION_BLOCKS_ALL_TRAFFIC` | Connected VLANs have `block_all` default + zero rules, but machines need cross-VLAN traffic | Check 14 |
 | `UNUSED_SCOPED_ADMIN_GROUP` | A scoped admin group exists on the DC but is never referenced in any machine's local group membership plugin | Check 15 |
 | `NO_LOCAL_GROUP_ENFORCEMENT` | Domain has 2+ scoped admin groups but zero machines have local group membership plugins (segmentation is decorative) | Check 15 |
 | `SAMACCOUNTNAME_TOO_LONG` | A user's samAccountName exceeds Windows AD's 20-character pre-Windows-2000 logon limit | Check 16 |
@@ -248,7 +248,7 @@ For every reference found, resolve against the appropriate DC's `CreateOUs` / `C
 Before running checks, prep the data you'll need across multiple checks:
 
 1. `architect_canvas_get_overview` for the full picture; `architect_canvas_get_projected_state` for the full draft state preview.
-2. `architect_vlan_get` per VLAN for machines + plugins. For 3+ machines, `discover_tools(search: "batch")` for batch reads.
+2. `architect_vlan_get` (`vlans`, up to 20 per call) for machines + plugins, and `architect_machine_get` (`machines`, up to 50 per call) for machine details.
 3. **DC AD rosters** — for each domain, read the DC's `CreateUsers`, `CreateOUs`, and `CreateGroups` params once to build complete user / OU / group lists before sweeping plugins. Note trust relationships for cross-domain resolution (users, OUs, and groups all may legitimately come from a trusted domain).
 4. **IP → machine map** — while reading machines, build a static-IP-to-machine lookup. This powers Check 13 (IP cross-referencing) without redundant queries. Note machines that lack a static IP.
 5. **Diff against last apply** — `discover_tools(search: "diff")` to see what changed since the last apply, when relevant.

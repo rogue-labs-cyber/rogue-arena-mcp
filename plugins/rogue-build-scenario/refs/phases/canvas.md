@@ -7,9 +7,9 @@
 
 ## Overview
 
-The canvas phase is the first phase of the build cascade. No upstream dependencies. It produces company profile, leadership team, and technical infrastructure naming decisions consumed by all downstream phases (domains, machines, enrichment).
+The canvas phase is the first phase of the build cascade. No upstream dependencies. It produces the company (the world record: organization, story clock, executives), the settings the lab is built to, and the naming decisions consumed by all downstream phases (domains, machines, enrichment).
 
-The canvas phase brainstorms company context through a focused discovery session, then generates the foundational canvas blueprint — company profile, departments, leadership team, and technical infrastructure. Everything downstream (domains, VLANs, machines, files) builds on what this phase produces.
+The canvas phase brainstorms company context through a focused discovery session, then generates the foundational canvas blueprint — the organization with its departments and dated history, the executive team, the naming conventions, and the lab's settings. Everything downstream (domains, VLANs, machines, files) builds on what this phase produces.
 
 ## Core Rules
 
@@ -110,11 +110,21 @@ Enrich thin prompts into distinctive company identities before dispatching Haiku
 
 ## Phase 2: Canvas Generation
 
-> **Staging:** Canvas bpData is staged per the Staged Dispatch Pattern in `refs/shared-rules.md`. Read the `architect_canvas_set_context` description for the path template (`staging/canvas-context/`) and section filenames; the orchestrator handles assembly and push. Inline bpData over 16 KB is rejected.
+> **Staging:** The company is staged per the Staged Dispatch Pattern in `refs/shared-rules.md`, under `staging/canvas-context/` as named sections (`organization.json`, `story-clock.json`, `executives.json`, `settings.json`); the orchestrator handles assembly and push. The hub refuses a part over its limits (for example, more than 100 history entries) and names the field at fault.
 
 Once the user confirms the brief, transition directly into generation:
 
-"Scenario brief is ready. Generating the canvas blueprint — company profile, leadership, and infrastructure naming."
+"Scenario brief is ready. Generating the canvas blueprint — the company, its executives, and its naming conventions."
+
+### What Is Written Where
+
+Two tools hold this phase's output:
+
+- **The world record** (`architect_forest_manage`, read back with `architect_forest_get_events`) is the one home of the company:
+  - `world.organization`: `name`, `business` (what it does and for whom), `sector`, `headcount` (the whole company, not the lab), `sites`, `departments` (`name`, `headcount`, `head`: the head's roster account, `purpose`), `entities` (every other named organization: `name`, `relation`, `kind`, `mailDomain` ending in `.local`), `products`, `culture`, `situation` (what it is dealing with now: the brief's narrative hooks), `founded`, `history` (the one dated history: `date` and `text`, from the brief's milestones), and `conventions` (`mailDomain`, the one internal mail domain ending in `.local`; `accountFormat`; `hostnameFormat`).
+  - `world.storyClock`: `today` (the day the player arrives; nothing is dated after it), optional `timeZone` and `note`.
+  - `addPeople`: the executive team, one entry each: `account`, `name`, `kind: "staff"`, `title`, `department`, `manager`, `mail`, `executive: true`; and each department head who is not an executive, without `executive`.
+- **The settings** (`architect_canvas_set_context`, read back with `architect_canvas_get_context`): `securityPosture`, `characterStyle`, `allowedFranchises` (popculture only) and `constraints` (`minMachines`, `maxMachines`, `minUsers`, `maxUsers`, `minDomains`, `maxDomains`, from the size tier in shared-rules.md). Every call replaces all four.
 
 ### Generation Gates
 
@@ -124,46 +134,48 @@ Once the user confirms the brief, transition directly into generation:
 
 **GATE 3: Reference file paths in every dispatch.** Every Haiku dispatch includes ref file paths so Haiku can read size limits, hostname rules, and content policy before generating.
 
-**GATE 4: Inspect before storing.** After Haiku returns JSON, spot-check before calling `architect_canvas_set_context`: leadership includes CEO + security leader, no content policy violations. Re-dispatch with corrections if any check fails.
+**GATE 4: Inspect before storing.** After Haiku returns JSON, spot-check before calling `architect_forest_manage`: the executives include a CEO and a security leader, each department's `head` is an account in `addPeople`, every mail domain ends in `.local`, no `history` entry is dated after `storyClock.today` or before `founded`, no content policy violations. Re-dispatch with corrections if any check fails.
 
-Verify state via `architect_canvas_get_overview` after this phase completes.
+Verify state via `architect_canvas_get_overview` after this phase completes: its `blueprintSummary.missing` is empty.
 
 ### Haiku Subagent Dispatch
 
-You (the orchestrator) handle the workflow: reading state, deciding what to build, calling MCP tools. Subagents handle bpData generation: you give them ref file paths + context, they return JSON. You assemble their output into the final bpData payload and calls `architect_canvas_set_context` exactly ONCE with the complete payload.
+You (the orchestrator) handle the workflow: reading state, deciding what to build, calling MCP tools. Subagents handle context generation: you give them ref file paths + context, they return JSON. You assemble their output into one `architect_forest_manage` call and one `architect_canvas_set_context` call.
 
 See [shared-rules.md -- Haiku Subagent Dispatch Pattern](../shared-rules.md#haiku-subagent-dispatch-pattern) for the canonical template shape.
 
 **Use 1 subagent call:**
 
-1. **Subagent — context sections (~15KB).** Dispatch a Haiku subagent to generate `companyProfile`, `leadership`, and `technicalInfra`. This fits within the Read tool's token limit and returns inline. Per-phase context block: include `<canvas-context>[architect_canvas_get_overview result]</canvas-context>` and `<user-request>[industry, size, themes]</user-request>`.
+1. **Subagent — the company (~15KB).** Dispatch a Haiku subagent to generate `world.organization`, `world.storyClock` and the executives for `addPeople`. This fits within the Read tool's token limit and returns inline. Per-phase context block: include `<canvas-context>[architect_canvas_get_overview result]</canvas-context>` and `<user-request>[industry, size, themes]</user-request>`.
 
-**Storage:** After the subagent completes, assemble bpData from the subagent output and call `architect_canvas_set_context` ONCE with the complete payload. Do NOT call set_context twice — it uses REPLACE semantics and the second call would destroy the first call's data.
+**Storage:** After the subagent completes:
+1. `architect_canvas_set_context` with `securityPosture`, `characterStyle`, `allowedFranchises` and `constraints`.
+2. `architect_forest_manage` with `world` (`organization` and `storyClock`) and `addPeople` (the executives) in ONE call: the keys are saved together or not at all. The organization and story clock are each replaced whole when sent, so a later change sends the whole part again.
 
 ### Validation Checklist
 
 Execution sequence — run before reporting success:
 
-1. **Leadership completeness** — CEO + security leader present; industry-specific roles included (CTO for tech, CFO for finance); team size matches size tier.
-2. **Headcount math** — maxUsers aligns with size tier from shared-rules.md; department headcounts sum to maxUsers (+/-5%).
-3. **Naming conventions** — hostname patterns match company size tier; OU structure matches maturity; security group prefixes correct (GG-/DL-/UG-).
+1. **Executive completeness** — CEO + security leader in `addPeople` with `executive: true`; industry-specific roles included (CTO for tech, CFO for finance); team size matches size tier.
+2. **Headcount math** — `constraints.maxUsers` aligns with the size tier from shared-rules.md; the organization's `headcount` is the whole company, so it may exceed the lab's users.
+3. **Naming conventions** — `conventions.hostnameFormat` and `conventions.accountFormat` match the company size tier and the picks in `keyDecisions`; security group prefixes correct (GG-/DL-/UG-).
 4. **Content policy** — zero violations; one violation rejects and re-dispatches.
-5. **Thematic fidelity** — company profile reflects requested industry/franchise/themes, not a generic placeholder.
+5. **Thematic fidelity** — the organization reflects the requested industry/franchise/themes, not a generic placeholder.
 
 ### Modify Flow
 
 When modifying an existing canvas:
-1. Read current state via `architect_canvas_get_overview`.
+1. Read current state via `architect_canvas_get_overview`, the company via `architect_forest_get_events` (its `world`) and the settings via `architect_canvas_get_context` (its `profile`).
 2. Identify what needs changing.
-3. Dispatch Haiku with current state + modification request (preserve unchanged sections).
-4. Store via `architect_canvas_set_context` (replaces entire BP).
-5. Trust the set_context success response. Post-routing verification (overview) is handled by the root orchestrator.
+3. Dispatch Haiku with the current part + modification request (preserve unchanged fields).
+4. Store the changed part: the whole `world.organization` or `world.storyClock` via `architect_forest_manage`, changed people via `addPeople`, or all four settings via `architect_canvas_set_context`.
+5. Trust a done answer, and read its notes first: **Not used** names a field the tool left out, and **Nothing was changed** means nothing was saved. Post-routing verification (overview) is handled by the root orchestrator.
 
 If the modification is downstream (VLAN or machine changes), skip this phase — the appropriate downstream phase handles it.
 
 ### Error Handling
 
-If `architect_canvas_set_context` returns validation errors: read the Zod error messages, fix the specific fields, and re-dispatch or fix directly if the error is simple. If `architect_canvas_get_overview` shows missing context sections after a successful call, re-run with full bpData to overwrite.
+If `architect_forest_manage` or `architect_canvas_set_context` refuses the call: read its **Fields** (each with what was expected and what was sent) and its **Hint**, fix those fields, and re-dispatch or fix directly if the error is simple. Nothing was saved, so send the whole call again. If `architect_canvas_get_overview` lists parts in `blueprintSummary.missing` after a done call, write those parts.
 
 ---
 
@@ -175,21 +187,21 @@ Shared reference data (company size tiers, security posture enum, industry regul
 
 - **Industry from the user's prompt, not universe stereotypes.** Red Rising can be mining, military, biotech, or government. Star Wars can be military, logistics, or education. Pick what makes the universe distinct rather than the obvious default or a generic industry that works anywhere.
 - **Thematic fidelity.** "Star Wars Empire" becomes an authoritarian logistics megacorp with military departments — not "Meridian Logistics Corporation." A company name containing "Studios" or "Entertainment" for a non-media prompt signals the theme got sanitized.
-- **Departments:** Always required — IT/Technology, Finance/Accounting, HR/Personnel. Add as size permits — Operations, Sales/Marketing, Legal, Facilities. Headcounts sum to maxUsers (+/-5%). Fictional scenarios can theme department names, but functions map to standard enterprise roles.
-- **Leadership team:** CEO plus at least one security leader (CISO/CIO/VP IT). Industry-specific additions — CTO (tech), CFO (finance), CMO (healthcare). Background split 40-60% internal promotions / 40-60% external hires. At least one leader with security-relevant vulnerabilities.
-- **Corporate structure to AD forest:** Subsidiaries become parent-child domains. Recent acquisitions become separate forests with trusts. Business units become domain trees. Geographic divisions become site-based child domains.
+- **Departments:** Always required — IT/Technology, Finance/Accounting, HR/Personnel. Add as size permits — Operations, Sales/Marketing, Legal, Facilities. Department `headcount`s sum to the organization's `headcount` (+/-5%). Fictional scenarios can theme department names, but functions map to standard enterprise roles.
+- **Executive team:** CEO plus at least one security leader (CISO/CIO/VP IT), each an `addPeople` entry with `executive: true`. Industry-specific additions — CTO (tech), CFO (finance), CMO (healthcare). Background split 40-60% internal promotions / 40-60% external hires. At least one leader with security-relevant vulnerabilities.
+- **Corporate structure to AD forest:** Subsidiaries (the organization's `entities` of kind `subsidiary`) become parent-child domains. Recent acquisitions become separate forests with trusts. Business units become domain trees. Geographic divisions become site-based child domains.
 
 ### Infrastructure Naming
 
-Canvas produces the *decision* of which naming conventions the company uses (picking one admin account convention, choosing parent-child vs resource forest topology, etc.) and records it in the brief. The canonical pattern rules (username formats, domain suffixes, hostname rules) live in [shared-rules.md](../shared-rules.md) — this phase doc does not restate them. Record the picks in `keyDecisions` so downstream phases know which variant to apply.
+Canvas produces the *decision* of which naming conventions the company uses (picking one admin account convention, choosing parent-child vs resource forest topology, etc.) and records it in the brief and in the organization's `conventions` (`accountFormat`, `hostnameFormat`). The canonical pattern rules (username formats, domain suffixes, hostname rules) live in [shared-rules.md](../shared-rules.md) — this phase doc does not restate them. Record the picks in `keyDecisions` so downstream phases know which variant to apply.
 
 ---
 
 ## Constraints
 
-- Haiku generates bpData; the canvas phase passes it through to the `bpData` field on `architect_canvas_set_context`.
-- The `prompt` field is optional metadata for the audit trail.
-- `architect_canvas_set_context` auto-stores `company_context` and `user_profiles` for downstream consumers — no extra storage calls needed.
+- Haiku generates the organization, story clock and executives; the canvas phase passes them through as `world` and `addPeople` of `architect_forest_manage`.
+- `architect_canvas_set_context` takes only the four settings; a field a tool does not take is left out and named under **Not used** in the answer.
+- Downstream phases read the company back with `architect_forest_get_events` and the settings with `architect_canvas_get_context`.
 - Verify state via `architect_canvas_get_overview` after this phase completes.
 - Every company uses modern enterprise IT infrastructure (Active Directory, contemporary databases, standard networking) regardless of fictional setting. Department names and themes can be fictional; IT infrastructure stays modern.
 - If a machine or VM limit is specified, reflect that limit exactly in `totalMachines` and capture the constraint verbatim.

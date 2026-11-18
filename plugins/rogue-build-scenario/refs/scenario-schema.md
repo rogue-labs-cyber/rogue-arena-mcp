@@ -48,7 +48,7 @@ company:
   narrative_hooks:
     - "Acquired Cygnus Spaceworks — integration is a disaster"
     - "CISO position open for 18 months, intern is interim security lead"
-  milestones:                         # optional — seeds forest event generation
+  milestones:                         # optional — seeds the company's dated history
     - year: 2015
       event: "Founded as Imperial defense subcontractor"
     - year: 2025

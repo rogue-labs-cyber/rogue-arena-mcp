@@ -1,6 +1,7 @@
 import type { HubClient } from "./hub-client.js";
 import { HubRequestError } from "./hub-errors.js";
 import type { Session } from "./session.js";
+import type { ToolAnswer } from "./tool-answer.js";
 
 /** Said when a call made with no canvas bound fails: the tool may need one, and this is how to get one. */
 export const NO_CANVAS_HINT =
@@ -16,7 +17,7 @@ export async function callCanvasCategoryTool(
   session: Pick<Session, "currentCanvas">,
   name: string,
   args: Record<string, unknown>,
-): Promise<{ success: boolean; data?: unknown; error?: string }> {
+): Promise<ToolAnswer> {
   const canvasVersionId = session.currentCanvas();
   if (canvasVersionId) return hub.executeTool(name, canvasVersionId, args);
   try {

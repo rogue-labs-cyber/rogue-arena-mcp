@@ -48,7 +48,7 @@ For power users who know what they want and don't need a guided pipeline.
 
 ## Startup
 
-1. Find the canvas yourself: `architect_canvas_list` (the user's own; pass a literal `search` when they named one) or `architect_canvas_list_team` (teammates'). Ask which only when several fit. For a new one, `architect_canvas_create` with a new `clientCommandId` (a UUID) and a name, then follow its `requestId` with `architect_canvas_action_status` until it succeeds and take `result.canvasVersionId`.
+1. Find the canvas yourself: `architect_canvas_list` (the user's own; pass a literal `search` when they named one) or `architect_canvas_list_team` (teammates'). Ask which only when several fit. For a new one, `architect_canvas_create` with a new `clientCommandId` (a UUID) and a name, then follow the action `id` it answers with `architect_canvas_action_status` (as `requestId`) until it succeeds and take `result.canvasVersionId`.
 2. Set canvas via `rogue_set_canvas(canvasVersionId)`
 3. Read canvas overview: `architect_canvas_get_overview()`, and in the same turn the canvas diary: `diary_read({ limit: 10 })`. The diary holds what earlier Oracle chats and MCP sessions left: the design and why, the owner's decisions, what remains. Read it once per session, not every turn.
 4. Present current state: "Your canvas has X VLANs, Y machines. What do you want to do?" Add one line on any diary entry that bears on the request.
@@ -71,7 +71,7 @@ Load `refs/freeform-context.md` for comprehensive platform knowledge. This doc c
 - DC-first ordering
 - Plugin param discovery workflow
 - Account type separation
-- set_context REPLACE semantics
+- The settings (`architect_canvas_set_context`, all four replaced per call) and the world record (`architect_forest_manage`, the company)
 - Zone classification & IP addressing
 - Naming conventions
 - Budget enforcement
@@ -98,13 +98,13 @@ Plugin names are not hardcoded — search the catalog at runtime via `architect_
 
 | Action | Required orchestration plugin |
 |--------|-------------------------------|
-| Assigning a primary user to a workstation/desktop via `architect_machine_manage_user` (and the user is expected to auto-login on boot) | An auto-login plugin matching the machine's OS family — search `"auto login"` / `"autologin"` and filter by OS |
+| Assigning a primary user to a workstation/desktop via `architect_machine_assign_user` (and the user is expected to auto-login on boot) | An auto-login plugin matching the machine's OS family — search `"auto login"` / `"autologin"` and filter by OS |
 | Uploading files to a vault destined for delivery to a machine | **File Copy** plugin on the same machine, pointing at the vault path |
 | Assigning a primary user to a Windows workstation/desktop | An Office install plugin (provides Word, Excel, etc.) — search `"Office install"` / `"Microsoft Office"` and filter to Windows |
 
 If multiple candidate plugins match the catalog search, ask the user which one. Surface every auto-coupling to the user inline so they see what was added.
 
-**Plugin `run_order` matters.** When File Copy and Auto Login are both assigned to the same machine, set File Copy's `run_order` HIGHER than Auto Login's. Auto Login creates the user profile folders (Desktop, Documents, AppData) that File Copy needs as destinations — if File Copy fires first, Ansible has nowhere to copy the files.
+**Plugin run order matters.** When File Copy and Auto Login are both assigned to the same machine, File Copy runs AFTER Auto Login (a higher `position`; set it with `architect_assigned_plugin_reorder` or a higher `runOrderSequence` on `architect_assigned_plugin_update`). Auto Login creates the user profile folders (Desktop, Documents, AppData) that File Copy needs as destinations — if File Copy fires first, Ansible has nowhere to copy the files.
 
 ## Addon Config Sample Awareness
 
@@ -131,7 +131,7 @@ Four rules apply throughout plugin work — when adding, configuring, or auditin
 
 **Same-machine dep pairs are coupled.** When listing plugins on a machine, check each plugin's `isDependencyAdd` flag and `sameMachineDependencies` / `sameMachineDependents` arrays. A plugin with `isDependencyAdd: true` is auto-attached — the parent (in `sameMachineDependents`) owns ordering, configuration, and lifecycle; the dependent travels with it. Treat dep-pairs as a single unit — describe them as "coupled," not duplicates. Never `_update` or `_reorder` a plugin where `isDependencyAdd: true`; target its parent. (Cross-machine deps via `crossMachineDependencies` are separate.)
 
-**Plugin sequencing sanity.** When adding a plugin or auditing a machine's sequence, read each plugin's description and any `parentServerPlugins` from the catalog to determine prerequisites. Catalog metadata + prose are the source of truth — don't guess from plugin names. Common anti-patterns to watch for:
+**Plugin sequencing sanity.** When adding a plugin or auditing a machine's sequence, read each plugin's description from the catalog (`architect_plugin_catalog_list_full`) to determine prerequisites. Catalog metadata + prose are the source of truth — don't guess from plugin names. Common anti-patterns to watch for:
 
 - Domain-join AFTER auto-login of a domain user (login fails — user doesn't exist yet)
 - User-context plugins (Outlook, Mount Share, file-copy to user-profile paths like `C:\Users\<user>\`) BEFORE auto-login (profile doesn't exist yet)
@@ -139,7 +139,7 @@ Four rules apply throughout plugin work — when adding, configuring, or auditin
 
 Place new plugins AFTER their prerequisites. The File-Copy-after-Auto-Login rule above is a specific case of this discipline.
 
-**Run-order tooling.** Each plugin returns `position` (1..N dense, derived per machine) and `runOrderSequence` (raw int the FE displays). Use `position` as your working model. To reorder a whole machine: `architect_assigned_plugin_reorder({ machineId, orderedAppliedPluginIds })` — one atomic call, weaves in same-machine deps automatically (omit `isDependencyAdd: true` plugins from input). To insert a single plugin at a specific spot: `_add` then `_update` with the desired `runOrderSequence` (any unused integer; gaps survive — hub doesn't reindex on `_update` or Apply Plan).
+**Run-order tooling.** Each plugin returns `position` (1..N dense, derived per machine) and `runOrderSequence` (raw int the FE displays). Use `position` as your working model. To reorder a whole machine: `architect_assigned_plugin_reorder({ machine, orderedPlugins })` — one atomic call, weaves in same-machine deps automatically (omit `isDependencyAdd: true` plugins from input). To insert a single plugin at a specific spot: `_add` then `_update` with the desired `runOrderSequence` (any unused integer; gaps survive — hub doesn't reindex on `_update` or Apply Plan).
 
 ## Validation on Demand
 

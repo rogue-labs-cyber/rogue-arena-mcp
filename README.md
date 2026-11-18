@@ -54,9 +54,9 @@ The server is registered per-agent:
 | Skill | What it does |
 |-------|-------------|
 | **rogue-build-scenario** | Design lab scenarios -- brainstorm company context and infrastructure, implement via MCP tools, debug deployments |
-| **rogue-active-deployment** | Operate on running deployments -- execute commands, browse files, manage snapshots, test payloads against detections |
+| **rogue-active-deployment** | Operate on running deployments -- execute commands, browse files, manage snapshots, test payloads (snapshot, run, revert) |
 | **rogue-plugin-dev** | Develop Ansible plugins -- brainstorm offline install approaches, write YAML, manage vaults |
-| **rogue-curriculum-builder** | Build course content -- create chapters, sections, CTF nodes, insert media |
+| **rogue-curriculum-builder** | Build curriculum content -- create chapters, sections, CTF nodes, insert media |
 
 **In Claude Code**, skills install as plugins and activate automatically when you ask for something matching their triggers (e.g., "build a lab", "test this payload", "create a chapter").
 
@@ -71,8 +71,8 @@ Agent:  [activates rogue-build-scenario, brainstorms with you, builds via MCP to
 You:    "Deploy it and upload my C2 implant to the Windows workstation"
 Agent:  [activates rogue-active-deployment, deploys, uploads file]
 
-You:    "Test the implant against detections"
-Agent:  [activates rogue-maldev, snapshots, executes, checks Elastic, reverts]
+You:    "Snapshot the workstation, run it, then revert"
+Agent:  [activates rogue-active-deployment, snapshots, runs it, reverts]
 ```
 
 ## Commands
@@ -110,6 +110,8 @@ irm https://raw.githubusercontent.com/rogue-labs-cyber/rogue-arena-mcp/main/inst
 ```
 
 Re-running the installer refreshes everything: the MCP server, the `rogue-mcp` CLI, all skill content, and the plugin/MCP registration for whichever agents you have. Your keychain auth token is preserved -- no need to re-login.
+
+After an update, restart your agent (in Claude Code you can instead run `/mcp` and reconnect `rogue-arena`) so it loads the new server and tool list. Update the server and the plugins together: each skill release teaches the tool shapes of the server release beside it.
 
 To silence the notifier (e.g., on an air-gapped machine):
 
